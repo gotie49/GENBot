@@ -1,0 +1,31 @@
+services:
+  bot:
+    build: .
+    image: statustw-discord-bot:latest
+    container_name: statustw-discord-bot
+    # Restarts after crashes and after a reboot of the Pi (requires the Docker service to be enabled).
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/bot.sqlite3
+      HEARTBEAT_FILE: /tmp/heartbeat
+    volumes:
+      - bot-data:/data
+    # Hardening: read-only root FS, no privileges, nothing exposed (the bot only makes outgoing connections).
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    stop_grace_period: 30s
+    # Rotate logs so they cannot fill the SD card.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:
