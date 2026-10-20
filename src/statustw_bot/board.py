@@ -1,24 +1,23 @@
 """Persistent, continuously updated status board in a dedicated channel.
 
-One embed per player (Discord allows 10 per message, so larger lists span several
-messages). The left border colour encodes how recently the player was online:
+Layout (chosen after comparing variants in a real Discord client): one Components-V2
+container per message, one text row per player, rows separated by thin dividers:
 
-    green  online now or < 1 h      yellow 1–5 h      red 5–24 h      white > 24 h
+    🟢 **Gotie**   [A] |KoG| GER3 #26 - Insane Gores [kog.tw]   online now
+    ───────────────────────────────────────────────────────────────────────
+    🟠 **KOF**     [A] |KoG| GER3 #29 - Mods Gores [kog.tw]     2h 15m ago
 
-Every embed carries the same invisible 1000x1 px image so that Discord renders all
-bars at full width (embeds otherwise shrink to their text). Times are short texts
-written by the bot ("18m ago", "2h 15m ago"); the bot only edits when the rendered
-content changes, which is at most about once a minute.
+The dot shows how recently the player was online: 🟢 online or < 1 h, 🟠 1–5 h,
+🔴 5–24 h, ⚪ > 24 h, ⚫ never seen. Server names link to CONNECT_URL_TEMPLATE
+(forwarding to ddnet://). Times are short texts written by the bot; the message is
+only edited when the rendered text changes, i.e. at most about once a minute.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
-import struct
-import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Protocol, Sequence
@@ -32,33 +31,20 @@ from .storage import PlayerRecord, Storage
 
 log = logging.getLogger(__name__)
 
-EMBEDS_PER_MESSAGE = 10  # Discord limit
+# Components V2 allow 40 components per message; each row costs a text display plus a
+# separator, so 15 rows per message keep a wide margin (and match the expected list size).
+ROWS_PER_MESSAGE = 15
+ACCENT_COLOR = 0x5865F2  # default for BOARD_COLOR
 
-COLOR_RECENT = 0x23A55A  # online or < 1 h
-COLOR_HOURS = 0xF0B232  # 1–5 h
-COLOR_DAY = 0xF23F43  # 5–24 h
-COLOR_OLD = 0xDBDEE1  # > 24 h
-COLOR_NEVER = 0x4E5058  # never seen online
+DOT_RECENT = "🟢"  # online or < 1 h
+DOT_HOURS = "🟠"  # 1–5 h
+DOT_DAY = "🔴"  # 5–24 h
+DOT_OLD = "⚪"  # > 24 h
+DOT_NEVER = "⚫"  # never seen online
 
-SPACER_FILENAME = "spacer.png"
+EMPTY_TEXT = "No players are being watched yet. Use `/player add`."
 
-
-def _spacer_png(width: int = 1000, height: int = 1) -> bytes:
-    """Fully transparent PNG; generated in code so no asset has to be shipped or hosted."""
-    raw = b"".join(b"\x00" + b"\x00\x00\x00\x00" * width for _ in range(height))
-
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-
-
-SPACER_PNG = _spacer_png()
-
-
-def spacer_file() -> discord.File:
-    return discord.File(io.BytesIO(SPACER_PNG), filename=SPACER_FILENAME)
+Page = list[str]  # the text rows of one board message
 
 
 def format_ago(delta: timedelta) -> str:
@@ -76,20 +62,20 @@ def format_ago(delta: timedelta) -> str:
     return f"{hours // 24}d ago"
 
 
-def color_for(player: PlayerRecord, now: datetime) -> int:
+def status_dot(player: PlayerRecord, now: datetime) -> str:
     if player.state.status is Status.ONLINE:
-        return COLOR_RECENT
+        return DOT_RECENT
     last = player.state.last_online_at
     if last is None:
-        return COLOR_NEVER
+        return DOT_NEVER
     age = now - last
     if age < timedelta(hours=1):
-        return COLOR_RECENT
+        return DOT_RECENT
     if age < timedelta(hours=5):
-        return COLOR_HOURS
+        return DOT_HOURS
     if age < timedelta(hours=24):
-        return COLOR_DAY
-    return COLOR_OLD
+        return DOT_DAY
+    return DOT_OLD
 
 
 def _sort_key(player: PlayerRecord) -> tuple[int, float, str]:
@@ -107,7 +93,7 @@ def _split_address(address: str | None) -> tuple[str | None, int | None]:
 
 def player_line(player: PlayerRecord, links: LinkTemplates, now: datetime) -> str:
     state = player.state
-    parts = [f"**{escape_text(player.name)}**"]
+    parts = [f"{status_dot(player, now)} **{escape_text(player.name)}**"]
 
     if state.last_server_name:
         ip, port = _split_address(state.last_server_address)
@@ -126,33 +112,38 @@ def player_line(player: PlayerRecord, links: LinkTemplates, now: datetime) -> st
     return "   ".join(parts)
 
 
-def _row(description: str, color: int) -> discord.Embed:
-    embed = discord.Embed(description=description, color=color)
-    embed.set_image(url=f"attachment://{SPACER_FILENAME}")
-    return embed
-
-
-def build_pages(players: Sequence[PlayerRecord], links: LinkTemplates, now: datetime) -> list[list[discord.Embed]]:
-    """Render the board: a list of messages, each a list of up to 10 embeds (one per player)."""
+def build_pages(players: Sequence[PlayerRecord], links: LinkTemplates, now: datetime) -> list[Page]:
+    """Render the board: one list of text rows per message."""
     if not players:
-        embeds = [_row("No players are being watched yet. Use `/player add`.", COLOR_NEVER)]
-    else:
-        embeds = [_row(player_line(p, links, now), color_for(p, now)) for p in sorted(players, key=_sort_key)]
-    return [embeds[i : i + EMBEDS_PER_MESSAGE] for i in range(0, len(embeds), EMBEDS_PER_MESSAGE)]
+        return [[EMPTY_TEXT]]
+    rows = [player_line(p, links, now) for p in sorted(players, key=_sort_key)]
+    return [rows[i : i + ROWS_PER_MESSAGE] for i in range(0, len(rows), ROWS_PER_MESSAGE)]
 
 
-def _signature(pages: list[list[discord.Embed]]) -> str:
-    return json.dumps([[e.to_dict() for e in page] for page in pages], sort_keys=True)
+def build_view(page: Page, accent_color: int = ACCENT_COLOR) -> discord.ui.LayoutView:
+    """Components-V2 message: one container, rows separated by small dividers."""
+    container: discord.ui.Container = discord.ui.Container(accent_colour=accent_color)
+    for index, row in enumerate(page):
+        if index:
+            container.add_item(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small))
+        container.add_item(discord.ui.TextDisplay(row))
+    view = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
+
+
+def _signature(pages: list[Page]) -> str:
+    return json.dumps(pages)
 
 
 class MessageMissing(Exception):
-    """The board message no longer exists (deleted by someone)."""
+    """The board message no longer exists (or cannot be edited into the current format)."""
 
 
 class BoardTransport(Protocol):
-    async def send(self, embeds: list[discord.Embed]) -> int: ...
+    async def send(self, page: Page) -> int: ...
 
-    async def edit(self, message_id: int, embeds: list[discord.Embed]) -> None: ...
+    async def edit(self, message_id: int, page: Page) -> None: ...
 
     async def delete(self, message_id: int) -> None: ...
 
@@ -276,10 +267,15 @@ class StatusBoard:
 
 
 class ChannelBoardTransport:
-    """BoardTransport backed by a Discord text channel."""
+    """BoardTransport backed by a Discord text channel (Components V2 messages)."""
 
-    def __init__(self, resolve_channel: Callable[[], Awaitable[discord.abc.Messageable | None]]) -> None:
+    def __init__(
+        self,
+        resolve_channel: Callable[[], Awaitable[discord.abc.Messageable | None]],
+        accent_color: int = ACCENT_COLOR,
+    ) -> None:
         self._resolve_channel = resolve_channel
+        self._accent_color = accent_color
 
     async def _channel(self) -> discord.abc.Messageable:
         channel = await self._resolve_channel()
@@ -287,18 +283,26 @@ class ChannelBoardTransport:
             raise RuntimeError("status channel unavailable (check DISCORD_STATUS_CHANNEL_ID and bot permissions)")
         return channel
 
-    async def send(self, embeds: list[discord.Embed]) -> int:
-        message = await (await self._channel()).send(embeds=embeds, file=spacer_file())
+    async def send(self, page: Page) -> int:
+        message = await (await self._channel()).send(view=build_view(page, self._accent_color))
         return message.id
 
-    async def edit(self, message_id: int, embeds: list[discord.Embed]) -> None:
-        channel = await self._channel()
+    async def edit(self, message_id: int, page: Page) -> None:
+        message = (await self._channel()).get_partial_message(message_id)  # type: ignore[attr-defined]
         try:
-            # Re-attach the spacer on every edit so boards created by older versions get it too.
-            await channel.get_partial_message(message_id).edit(  # type: ignore[attr-defined]
-                embeds=embeds, attachments=[spacer_file()]
-            )
+            await message.edit(view=build_view(page, self._accent_color))
         except discord.NotFound as exc:
+            raise MessageMissing(message_id) from exc
+        except discord.HTTPException as exc:
+            if exc.status != 400:
+                raise
+            # A board posted by an older version (embeds) cannot be turned into a Components-V2
+            # message: remove it so the board logic posts a fresh one in its place.
+            log.info("replacing status board message from an older version", extra=fields(message=message_id))
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass
             raise MessageMissing(message_id) from exc
 
     async def delete(self, message_id: int) -> None:

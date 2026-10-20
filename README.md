@@ -142,27 +142,33 @@ Optional pflegt der Bot in einem **eigenen Channel** eine dauerhafte Übersicht 
 registrierten Spieler, die laufend aktualisiert wird, statt neue Nachrichten zu posten:
 
 ```
-┃ Gotie       [A] |KoG| GER3 #26 - Insane Gores [kog.tw]     online now   ┃ (grün)
-┃ Kingjulius  [A] |*KoG*| GER3 #26 - Extreme Gores [kog.tw]  27m ago      ┃ (grün)
-┃ KOF         [A] |KoG| GER3 #29 - Mods Gores [kog.tw]       2h 30m ago   ┃ (gelb)
-┃ mpampas     [A] |KoG| GER3 #26 - Insane Gores [kog.tw]     18h ago      ┃ (rot)
-┃ old_timer   DDNet GER10 - Novice                           3d ago       ┃ (weiß)
-┃ newbie      never                                                       ┃ (grau)
+┃ 🟢 Gotie        [A] |KoG| GER3 #26 - Insane Gores [kog.tw]     online now
+┃ ──────────────────────────────────────────────────────────────────────────
+┃ 🟢 Kingjulius   [A] |*KoG*| GER3 #26 - Extreme Gores [kog.tw]  13m ago
+┃ ──────────────────────────────────────────────────────────────────────────
+┃ 🟠 KOF          [A] |KoG| GER3 #29 - Mods Gores [kog.tw]       2h 16m ago
+┃ ──────────────────────────────────────────────────────────────────────────
+┃ 🔴 mpampas      [A] |KoG| GER3 #26 - Insane Gores [kog.tw]     18h ago
+┃ ──────────────────────────────────────────────────────────────────────────
+┃ ⚪ old_timer    DDNet GER10 - Novice                           3d ago
+┃ ──────────────────────────────────────────────────────────────────────────
+┃ ⚫ newbie       never
 ```
 
-- Eine Leiste pro Spieler, alle gleich breit. Die Farbe zeigt, wie lange der Spieler offline
-  ist: grün = online oder < 1 h, gelb = 1–5 h, rot = 5–24 h, weiß = > 24 h, grau = noch nie
-  online gesehen. Sortiert: online zuerst, dann nach „zuletzt online“.
-- Die gleiche Breite entsteht durch ein unsichtbares 1000×1-px-Bild, das der Bot selbst erzeugt
-  und an jede Leiste hängt (Discord macht Embeds sonst nur so breit wie ihren Text). Es kostet
-  etwas zusätzliche Höhe pro Zeile.
+- Eine Nachricht im neueren Discord-Format (Components V2): ein Container mit farbiger
+  Leiste (`BOARD_COLOR`), eine Zeile pro Spieler, dünne Trennlinien dazwischen.
+- Der Punkt vor dem Namen zeigt, wie lange der Spieler offline ist: 🟢 online oder < 1 h,
+  🟠 1–5 h, 🔴 5–24 h, ⚪ > 24 h, ⚫ noch nie online gesehen. Sortiert: online zuerst, dann nach
+  „zuletzt online“.
 - Zeitangaben schreibt der Bot selbst (`18m ago`, `2h 15m ago`, `18h ago`, `3d ago`). Er
-  bearbeitet die Nachricht nur, wenn sich der angezeigte Inhalt ändert – höchstens etwa einmal
+  bearbeitet die Nachricht nur, wenn sich der angezeigte Text ändert – höchstens etwa einmal
   pro Minute, also weit unter Discords Limits.
-- Discord erlaubt 10 Embeds pro Nachricht – ab 11 Spielern pflegt der Bot automatisch weitere
+- Bis 15 Spieler passen in eine Nachricht; darüber pflegt der Bot automatisch weitere
   Nachrichten darunter. Wird eine Listen-Nachricht gelöscht, legt der Bot sie neu an. Die
   Nachrichten-IDs liegen in der Datenbank; nach einem Neustart wird dieselbe Nachricht
   weiterbearbeitet.
+- Eine Liste aus einer älteren Version (Embeds) lässt sich nicht in das neue Format
+  umwandeln – Discord lehnt das ab. Der Bot löscht sie dann einmalig und postet die neue Liste.
 
 **Einrichten:**
 
@@ -294,6 +300,7 @@ Alle Einstellungen sind Umgebungsvariablen (siehe `.env.example` mit Kommentaren
 | `EMBED_COLOR` | `#701A75` | Farbe der Embed-Leiste |
 | `PLAYER_PROFILE_URL_TEMPLATE` | leer\* | Profil-Link, Platzhalter `{name}` |
 | `SERVER_URL_TEMPLATE` | leer\* | Server-Link, Platzhalter `{ip}`, `{port}` |
+| `BOARD_COLOR` | `#5865F2` | Farbe der Leiste der Statusliste |
 | `CONNECT_URL_TEMPLATE` | leer\* | Server-Link in der Statusliste (Weiterleitung zu `ddnet://`), Platzhalter `{ip}`, `{port}` |
 | `LOG_LEVEL` | `INFO` | `DEBUG` … `CRITICAL` |
 | `DATABASE_PATH` | `data/bot.sqlite3` | im Container `/data/bot.sqlite3` |
@@ -398,7 +405,7 @@ src/statustw_bot/
 
 | Geprüft | Ergebnis |
 |---|---|
-| Automatisierte Tests (`pytest`, 126 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
+| Automatisierte Tests (`pytest`, 129 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
 | status.tw-Endpunkte, Antwortformate, Header, Auth-Pflicht | ✅ live per HTTP geprüft; Parser mit echtem `/player/list`-Datensatz getestet |
 | Bot-Start mit ungültigem Token → saubere Fehlermeldung, Exit 1, kein Token im Log | ✅ |
 | Slash-Command-Payloads (Namen, Längen, nur Server-Kontext) | ✅ lokal erzeugt und geprüft |
@@ -406,8 +413,8 @@ src/statustw_bot/
 | Docker-Build amd64/arm64/armv7, Tests in allen drei Images (ARM per Emulation) | ✅ |
 | `compose up`, Neustart nach Fehler, Non-Root, Read-only-FS, Volume-Persistenz, Healthcheck, Backup/Restore | ✅ |
 | Echter Discord-Server mit lokalem status.tw-Simulator: Verbindung, Command-Sync, alle `/player`-Befehle, Online-Meldung, keine Doppelmeldung, API-Ausfall, offline→online, Neustart während online, Darstellung der Nachricht | ✅ |
-| Statusliste im echten Discord (lokal mit Simulator): gleiche Breite, Farben, kurze Zeiten, klickbare Server, Bearbeiten einer bestehenden Liste | ✅ |
-| Statusliste mit mehr als 10 Spielern (Folgenachrichten) und Öffnen von DDNet über die Weiterleitung | nur automatisiert getestet bzw. offen |
+| Statusliste im echten Discord (lokal mit Simulator): Layout mit Farbpunkten und Trennlinien, 13 Spieler in einer Nachricht, Bearbeiten an Ort und Stelle, Ersetzen einer Liste der Vorversion, `BOARD_COLOR` | ✅ |
+| Statusliste mit mehr als 15 Spielern (Folgenachrichten), Öffnen von DDNet über die Weiterleitung, Darstellung auf dem Handy | nur automatisiert getestet bzw. offen |
 | Betrieb auf echter Raspberry-Pi-Hardware (arm) gegen das echte status.tw: Start, `/player`-Befehle, Online-Meldung, keine Doppelmeldung, offline→online, Neustart des Pi | ✅ (vom Betreiber durchgeführt) |
 
 Empfohlene Abnahme: Bot auf einem Testserver einladen, `/player add` mit einem gerade aktiven

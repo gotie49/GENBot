@@ -23,7 +23,7 @@ def test_defaults():
     assert s.poll_interval_seconds == 60
     assert s.poll_strategy is PollStrategy.AUTO
     assert s.startup_strategy is StartupStrategy.BASELINE
-    assert s.embed_color == 0x701A75
+    assert s.embed_color == 0x701A75 and s.board_color == 0x5865F2
     assert s.status_tw_api_key is None
     assert s.player_profile_url_template is None and s.server_url_template is None
     assert s.public_read_commands is True
@@ -50,6 +50,8 @@ def test_secrets_not_in_repr():
         {"PLAYER_PROFILE_URL_TEMPLATE": "https://status.tw/players/"},
         {"SERVER_URL_TEMPLATE": "http://status.tw/servers/{ip}/{port}"},
         {"EMBED_COLOR": "purple"},
+        {"BOARD_COLOR": "blue"},
+        {"BOARD_COLOR": "#1000000"},
         {"API_REQUEST_BUDGET_PER_MINUTE": "101"},
         {"STATUS_TW_BASE_URL": "http://api.status.tw"},
         {"DISCORD_STATUS_CHANNEL_ID": "status"},
@@ -75,6 +77,7 @@ def test_full_config():
         "PLAYER_PROFILE_URL_TEMPLATE": "https://status.tw/players/{name}",
         "SERVER_URL_TEMPLATE": "https://status.tw/servers/{ip}/{port}",
         "EMBED_COLOR": "#123456",
+        "BOARD_COLOR": "#ff8800",
         "DISCORD_STATUS_CHANNEL_ID": "99",
         "CONNECT_URL_TEMPLATE": "https://gotie49.github.io/GENBot/connect/#{ip}:{port}",
         "LOG_LEVEL": "debug",
@@ -82,6 +85,7 @@ def test_full_config():
     assert s.discord_guild_id == 42 and s.poll_strategy is PollStrategy.BULK
     assert s.startup_strategy is StartupStrategy.RESUME and s.admin_role_ids == {1, 2, 3}
     assert not s.public_read_commands and s.embed_color == 0x123456 and s.log_level == "DEBUG"
+    assert s.board_color == 0xFF8800
     assert s.discord_status_channel_id == 99 and s.connect_url_template.endswith("#{ip}:{port}")
 
 

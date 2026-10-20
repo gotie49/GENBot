@@ -56,7 +56,7 @@ class StatusBot(discord.Client):
         if settings.discord_status_channel_id:
             self.board = StatusBoard(
                 self.storage,
-                ChannelBoardTransport(self._resolve_status_channel),
+                ChannelBoardTransport(self._resolve_status_channel, settings.board_color),
                 settings.discord_status_channel_id,
                 self.links,
                 ready=self.wait_until_ready,

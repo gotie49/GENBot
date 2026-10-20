@@ -133,6 +133,17 @@ def _get_enum(env: Mapping[str, str], key: str, enum_type: type[Enum], default: 
         raise ConfigError(f"{key} must be one of: {allowed}; got {raw!r}") from exc
 
 
+def _get_color(env: Mapping[str, str], key: str, default: str) -> int:
+    raw = _get_str(env, key, default) or default
+    try:
+        value = int(raw.removeprefix("#"), 16)
+    except ValueError as exc:
+        raise ConfigError(f"{key} must be a hex color like {default}, got {raw!r}") from exc
+    if not 0 <= value <= 0xFFFFFF:
+        raise ConfigError(f"{key} must be within #000000..#FFFFFF")
+    return value
+
+
 def _get_url_template(env: Mapping[str, str], key: str, placeholders: tuple[str, ...]) -> str | None:
     template = _get_str(env, key)
     if template is None:
@@ -171,6 +182,7 @@ class Settings:
     server_url_template: str | None
     connect_url_template: str | None
     embed_color: int
+    board_color: int
     heartbeat_file: str | None
 
     @property
@@ -204,13 +216,8 @@ class Settings:
         if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigError(f"LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR or CRITICAL; got {log_level!r}")
 
-        color_raw = _get_str(env, "EMBED_COLOR", "#701A75") or "#701A75"
-        try:
-            embed_color = int(color_raw.lstrip("#"), 16)
-        except ValueError as exc:
-            raise ConfigError(f"EMBED_COLOR must be a hex color like #701A75, got {color_raw!r}") from exc
-        if not 0 <= embed_color <= 0xFFFFFF:
-            raise ConfigError("EMBED_COLOR must be within #000000..#FFFFFF")
+        embed_color = _get_color(env, "EMBED_COLOR", "#701A75")
+        board_color = _get_color(env, "BOARD_COLOR", "#5865F2")
 
         base_url = (_get_str(env, "STATUS_TW_BASE_URL", "https://api.status.tw") or "").rstrip("/")
         # Plain http is only accepted for a local test double (tools/fake_statustw.py).
@@ -244,5 +251,6 @@ class Settings:
             server_url_template=_get_url_template(env, "SERVER_URL_TEMPLATE", ("ip", "port")),
             connect_url_template=_get_url_template(env, "CONNECT_URL_TEMPLATE", ("ip", "port")),
             embed_color=embed_color,
+            board_color=board_color,
             heartbeat_file=_get_str(env, "HEARTBEAT_FILE"),
         )
