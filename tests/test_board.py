@@ -9,6 +9,7 @@ from statustw_bot.board import (
     DOT_HOURS,
     DOT_NEVER,
     DOT_OLD,
+    DOT_ONLINE,
     DOT_RECENT,
     ROWS_PER_MESSAGE,
     MessageMissing,
@@ -51,7 +52,7 @@ def record(name, *, status=Status.OFFLINE, ago=None, server=SERVER, address="116
 @pytest.mark.parametrize(
     ("status", "ago", "dot"),
     [
-        (Status.ONLINE, timedelta(0), DOT_RECENT),
+        (Status.ONLINE, timedelta(0), DOT_ONLINE),
         (Status.OFFLINE, timedelta(minutes=12), DOT_RECENT),
         (Status.OFFLINE, timedelta(hours=2, minutes=15), DOT_HOURS),
         (Status.OFFLINE, timedelta(hours=18), DOT_DAY),
@@ -82,7 +83,7 @@ def test_format_ago(ago, text):
 def test_line_matches_variant_b_with_dot():
     line = player_line(record("Kingjulius", ago=timedelta(minutes=12)), LINKS, NOW)
     assert line == (
-        "🟢 **Kingjulius**   [[A] ǀ∗KoG∗ǀ GER3 #26 - Extreme Gores [kog.tw]]"
+        "🟡 **Kingjulius**   [[A] ǀ∗KoG∗ǀ GER3 #26 - Extreme Gores [kog.tw]]"
         "(https://gotie49.github.io/GENBot/connect/#116.203.164.237:8303)   12m ago"
     )
 
@@ -105,7 +106,7 @@ def test_pages_sorted_and_split():
     assert [len(p) for p in pages] == [ROWS_PER_MESSAGE, 20 - ROWS_PER_MESSAGE]
     flat = [row for page in pages for row in page]
     assert flat[0].startswith("🟢 **online**")
-    assert flat[1].startswith("🟢 **p00**") and flat[-2].startswith("🟢 **p17**")
+    assert flat[1].startswith("🟡 **p00**") and flat[-2].startswith("🟡 **p17**")
     assert flat[-1].startswith("⚫ **never**")
 
 

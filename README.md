@@ -144,7 +144,7 @@ registrierten Spieler, die laufend aktualisiert wird, statt neue Nachrichten zu 
 ```
 ┃ 🟢 Gotie        [A] |KoG| GER3 #26 - Insane Gores [kog.tw]     online now
 ┃ ──────────────────────────────────────────────────────────────────────────
-┃ 🟢 Kingjulius   [A] |*KoG*| GER3 #26 - Extreme Gores [kog.tw]  13m ago
+┃ 🟡 Kingjulius   [A] |*KoG*| GER3 #26 - Extreme Gores [kog.tw]  13m ago
 ┃ ──────────────────────────────────────────────────────────────────────────
 ┃ 🟠 KOF          [A] |KoG| GER3 #29 - Mods Gores [kog.tw]       2h 16m ago
 ┃ ──────────────────────────────────────────────────────────────────────────
@@ -157,8 +157,8 @@ registrierten Spieler, die laufend aktualisiert wird, statt neue Nachrichten zu 
 
 - Eine Nachricht im neueren Discord-Format (Components V2): ein Container mit farbiger
   Leiste (`BOARD_COLOR`), eine Zeile pro Spieler, dünne Trennlinien dazwischen.
-- Der Punkt vor dem Namen zeigt, wie lange der Spieler offline ist: 🟢 online oder < 1 h,
-  🟠 1–5 h, 🔴 5–24 h, ⚪ > 24 h, ⚫ noch nie online gesehen. Sortiert: online zuerst, dann nach
+- Der Punkt vor dem Namen zeigt, wie lange der Spieler offline ist: 🟢 gerade online,
+  🟡 < 1 h, 🟠 1–5 h, 🔴 5–24 h, ⚪ > 24 h, ⚫ noch nie online gesehen. Sortiert: online zuerst, dann nach
   „zuletzt online“.
 - Zeitangaben schreibt der Bot selbst (`18m ago`, `2h 15m ago`, `18h ago`, `3d ago`). Er
   bearbeitet die Nachricht nur, wenn sich der angezeigte Text ändert – höchstens etwa einmal

@@ -7,7 +7,7 @@ container per message, one text row per player, rows separated by thin dividers:
     ───────────────────────────────────────────────────────────────────────
     🟠 **KOF**     [A] |KoG| GER3 #29 - Mods Gores [kog.tw]     2h 15m ago
 
-The dot shows how recently the player was online: 🟢 online or < 1 h, 🟠 1–5 h,
+The dot shows how recently the player was online: 🟢 online now, 🟡 < 1 h, 🟠 1–5 h,
 🔴 5–24 h, ⚪ > 24 h, ⚫ never seen. Server names link to CONNECT_URL_TEMPLATE
 (forwarding to ddnet://). Times are short texts written by the bot; the message is
 only edited when the rendered text changes, i.e. at most about once a minute.
@@ -36,7 +36,8 @@ log = logging.getLogger(__name__)
 ROWS_PER_MESSAGE = 15
 ACCENT_COLOR = 0x5865F2  # default for BOARD_COLOR
 
-DOT_RECENT = "🟢"  # online or < 1 h
+DOT_ONLINE = "🟢"  # currently online
+DOT_RECENT = "🟡"  # offline for < 1 h
 DOT_HOURS = "🟠"  # 1–5 h
 DOT_DAY = "🔴"  # 5–24 h
 DOT_OLD = "⚪"  # > 24 h
@@ -64,7 +65,7 @@ def format_ago(delta: timedelta) -> str:
 
 def status_dot(player: PlayerRecord, now: datetime) -> str:
     if player.state.status is Status.ONLINE:
-        return DOT_RECENT
+        return DOT_ONLINE
     last = player.state.last_online_at
     if last is None:
         return DOT_NEVER
