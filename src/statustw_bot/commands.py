@@ -36,11 +36,11 @@ class InputError(ValueError):
 def validate_player_name(raw: str) -> str:
     name = raw.strip()
     if not name:
-        raise InputError("Der Spielername darf nicht leer sein.")
+        raise InputError("The player name must not be empty.")
     if len(name) > MAX_NAME_LENGTH:
-        raise InputError(f"Der Spielername darf höchstens {MAX_NAME_LENGTH} Zeichen lang sein.")
+        raise InputError(f"The player name must be at most {MAX_NAME_LENGTH} characters long.")
     if any(unicodedata.category(ch).startswith("C") for ch in name):
-        raise InputError("Der Spielername enthält unzulässige Steuerzeichen.")
+        raise InputError("The player name contains invalid control characters.")
     return name
 
 
@@ -52,9 +52,9 @@ def validate_server_address(raw: str | None) -> str | None:
         ip = ipaddress.IPv4Address(host)  # status.tw documents IPv4 server addresses
         port = int(port_raw)
     except ValueError:
-        raise InputError("Server bitte als `IPv4:Port` angeben, z. B. `116.203.164.237:8303`.") from None
+        raise InputError("Please give the server as `IPv4:port`, e.g. `116.203.164.237:8303`.") from None
     if not sep or not 1 <= port <= 65535:
-        raise InputError("Der Port muss zwischen 1 und 65535 liegen.")
+        raise InputError("The port must be between 1 and 65535.")
     return f"{ip}:{port}"
 
 
@@ -63,9 +63,9 @@ def validate_profile_url(raw: str | None) -> str | None:
         return None
     url = raw.strip()
     if not url.startswith("https://") or len(url) > MAX_URL_LENGTH:
-        raise InputError(f"Die Profil-URL muss mit https:// beginnen und darf max. {MAX_URL_LENGTH} Zeichen haben.")
+        raise InputError(f"The profile URL must start with https:// and be at most {MAX_URL_LENGTH} characters long.")
     if any(ch.isspace() or ch in "<>()[]\"'" for ch in url):
-        raise InputError("Die Profil-URL enthält unzulässige Zeichen.")
+        raise InputError("The profile URL contains invalid characters.")
     return url
 
 
@@ -79,12 +79,12 @@ def _describe_presence(presence: PlayerPresence, server_filter: str | None) -> s
     lines = ["🟢 **online**"]
     for conn in presence.connections[:5]:
         marker = " ⭐" if server_filter and conn.server.address == server_filter else ""
-        role = "Spieler" if conn.is_player else "Zuschauer"
+        role = "playing" if conn.is_player else "spectating"
         lines.append(f"• {escape_text(conn.server.name)} (`{conn.server.address}`, {role}){marker}")
     if len(presence.connections) > 5:
-        lines.append(f"• … und {len(presence.connections) - 5} weitere")
+        lines.append(f"• … and {len(presence.connections) - 5} more")
     if server_filter and not presence.connections_to(server_filter):
-        lines.append(f"_Nicht auf dem bevorzugten Server `{server_filter}` – zählt für Benachrichtigungen als offline._")
+        lines.append(f"_Not on the preferred server `{server_filter}`, so this counts as offline for notifications._")
     return "\n".join(lines)
 
 
@@ -92,7 +92,7 @@ class PlayerCommands(app_commands.Group):
     def __init__(self, bot: "StatusBot") -> None:
         super().__init__(
             name="player",
-            description="Teeworlds-Spieler über status.tw überwachen",
+            description="Watch Teeworlds players via status.tw",
             guild_only=True,
             allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=False, private_channel=False),
             allowed_installs=app_commands.AppInstallationType(guild=True, user=False),
@@ -117,7 +117,7 @@ class PlayerCommands(app_commands.Group):
         if allowed:
             return False
         await interaction.response.send_message(
-            "⛔ Dafür fehlt dir die Berechtigung (Administrator oder konfigurierte Admin-Rolle).", ephemeral=True
+            "⛔ You are not allowed to do this (administrator or configured admin role required).", ephemeral=True
         )
         log.info("command denied", extra=fields(user=interaction.user.id, command=interaction.command.name if interaction.command else "-"))
         return True
@@ -137,7 +137,7 @@ class PlayerCommands(app_commands.Group):
         record = await self.bot.storage.get_player(name)
         if record is None:
             await interaction.response.send_message(
-                f"❌ **{escape_text(name)}** ist nicht registriert. Siehe `/player list`.", ephemeral=True
+                f"❌ **{escape_text(name)}** is not registered. See `/player list`.", ephemeral=True
             )
         return record
 
@@ -147,30 +147,30 @@ class PlayerCommands(app_commands.Group):
 
     # ------------------------------------------------------------------ commands
 
-    @app_commands.command(name="add", description="Spieler zur Überwachung hinzufügen")
+    @app_commands.command(name="add", description="Start watching a player")
     @app_commands.describe(
-        spieler="Exakter Spielername (Groß-/Kleinschreibung beachten)",
-        server="Optional: nur Verbindungen zu diesem Server zählen (IPv4:Port)",
-        profil_url="Optional: eigene Profil-URL statt der Vorlage",
+        player="Exact in-game name (case-sensitive)",
+        server="Optional: only count connections to this server (IPv4:port)",
+        profile_url="Optional: custom profile URL instead of the default",
     )
     async def add(
         self,
         interaction: discord.Interaction,
-        spieler: app_commands.Range[str, 1, MAX_NAME_LENGTH],
+        player: app_commands.Range[str, 1, MAX_NAME_LENGTH],
         server: str | None = None,
-        profil_url: str | None = None,
+        profile_url: str | None = None,
     ) -> None:
         if await self._require_manager(interaction):
             return
         try:
-            name = validate_player_name(spieler)
+            name = validate_player_name(player)
             server_filter = validate_server_address(server)
-            profile_url = validate_profile_url(profil_url)
+            custom_url = validate_profile_url(profile_url)
         except InputError as exc:
             await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
             return
         if len(await self.bot.storage.list_players()) >= MAX_PLAYERS:
-            await interaction.response.send_message(f"❌ Maximal {MAX_PLAYERS} Spieler.", ephemeral=True)
+            await interaction.response.send_message(f"❌ You can watch at most {MAX_PLAYERS} players.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -180,53 +180,53 @@ class PlayerCommands(app_commands.Group):
             presence = await self.bot.api.get_player(name)
         except PlayerNotFound:
             await interaction.followup.send(
-                f"❌ status.tw hat noch nie einen Spieler namens **{escape_text(name)}** gesehen. "
-                "Bitte exakte Schreibweise prüfen.",
+                f"❌ status.tw has never seen a player named **{escape_text(name)}**. "
+                "Please check the exact spelling.",
                 ephemeral=True,
             )
             return
         except StatusTwError as exc:
-            note = f"\n⚠️ status.tw ist gerade nicht erreichbar ({exc}); der Name konnte nicht geprüft werden."
+            note = f"\n⚠️ status.tw is currently unreachable ({exc}), so the name could not be verified."
 
         try:
             record = await self.bot.storage.add_player(
-                name, added_by=interaction.user.id, profile_url=profile_url, server_filter=server_filter
+                name, added_by=interaction.user.id, profile_url=custom_url, server_filter=server_filter
             )
         except PlayerAlreadyExists:
-            await interaction.followup.send(f"ℹ️ **{escape_text(name)}** wird bereits überwacht.", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ **{escape_text(name)}** is already being watched.", ephemeral=True)
             return
         self.bot.monitor.forget(record.id)
         log.info("player added", extra=fields(player=name, by=interaction.user.id, server_filter=server_filter or "-"))
 
-        status = _describe_presence(presence, server_filter) if presence else "❔ unbekannt"
+        status = _describe_presence(presence, server_filter) if presence else "❔ unknown"
         await interaction.followup.send(
-            f"✅ **{escape_text(name)}** wird jetzt überwacht.\nAktuell: {status}"
-            "\n_Benachrichtigt wird beim nächsten Wechsel von offline zu online._" + note,
+            f"✅ Now watching **{escape_text(name)}**.\nCurrently: {status}"
+            "\n_A notification is sent the next time they go from offline to online._" + note,
             ephemeral=True,
         )
 
-    @app_commands.command(name="remove", description="Spieler aus der Überwachung entfernen")
-    @app_commands.describe(spieler="Registrierter Spielername")
-    async def remove(self, interaction: discord.Interaction, spieler: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
+    @app_commands.command(name="remove", description="Stop watching a player and delete the entry")
+    @app_commands.describe(player="Name of a watched player")
+    async def remove(self, interaction: discord.Interaction, player: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
         if await self._require_manager(interaction):
             return
-        record = await self._registered_player(interaction, spieler)
+        record = await self._registered_player(interaction, player)
         if record is None:
             return
         await self.bot.storage.remove_player(record.name)
         self.bot.monitor.forget(record.id)
         log.info("player removed", extra=fields(player=record.name, by=interaction.user.id))
-        await interaction.response.send_message(f"🗑️ **{escape_text(record.name)}** wurde entfernt.", ephemeral=True)
+        await interaction.response.send_message(f"🗑️ Removed **{escape_text(record.name)}**.", ephemeral=True)
 
-    @app_commands.command(name="enable", description="Überwachung eines Spielers aktivieren")
-    @app_commands.describe(spieler="Registrierter Spielername")
-    async def enable(self, interaction: discord.Interaction, spieler: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
-        await self._toggle(interaction, spieler, True)
+    @app_commands.command(name="enable", description="Resume watching a player")
+    @app_commands.describe(player="Name of a watched player")
+    async def enable(self, interaction: discord.Interaction, player: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
+        await self._toggle(interaction, player, True)
 
-    @app_commands.command(name="disable", description="Überwachung pausieren, ohne den Eintrag zu löschen")
-    @app_commands.describe(spieler="Registrierter Spielername")
-    async def disable(self, interaction: discord.Interaction, spieler: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
-        await self._toggle(interaction, spieler, False)
+    @app_commands.command(name="disable", description="Pause watching a player without deleting the entry")
+    @app_commands.describe(player="Name of a watched player")
+    async def disable(self, interaction: discord.Interaction, player: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
+        await self._toggle(interaction, player, False)
 
     async def _toggle(self, interaction: discord.Interaction, raw: str, enabled: bool) -> None:
         if await self._require_manager(interaction):
@@ -235,22 +235,22 @@ class PlayerCommands(app_commands.Group):
         if record is None:
             return
         if record.enabled == enabled:
-            state = "aktiv" if enabled else "deaktiviert"
-            await interaction.response.send_message(f"ℹ️ **{escape_text(record.name)}** ist bereits {state}.", ephemeral=True)
+            state = "enabled" if enabled else "disabled"
+            await interaction.response.send_message(f"ℹ️ **{escape_text(record.name)}** is already {state}.", ephemeral=True)
             return
         await self.bot.storage.set_enabled(record.name, enabled)
         self.bot.monitor.forget(record.id)
         log.info("player toggled", extra=fields(player=record.name, enabled=enabled, by=interaction.user.id))
-        text = "▶️ Überwachung aktiviert" if enabled else "⏸️ Überwachung deaktiviert"
+        text = "▶️ Resumed watching" if enabled else "⏸️ Paused watching"
         await interaction.response.send_message(f"{text}: **{escape_text(record.name)}**", ephemeral=True)
 
-    @app_commands.command(name="list", description="Alle registrierten Spieler mit letztem bekanntem Status")
+    @app_commands.command(name="list", description="List all watched players with their last known status")
     async def list_players(self, interaction: discord.Interaction) -> None:
         if await self._require_reader(interaction):
             return
         players = await self.bot.storage.list_players()
         if not players:
-            await interaction.response.send_message("Noch keine Spieler registriert. Nutze `/player add`.", ephemeral=True)
+            await interaction.response.send_message("No players registered yet. Use `/player add`.", ephemeral=True)
             return
         lines = []
         for p in players:
@@ -259,30 +259,30 @@ class PlayerCommands(app_commands.Group):
             if p.state.status is Status.ONLINE and p.state.last_server_name:
                 line += f" – {escape_text(p.state.last_server_name)}"
             elif p.state.last_online_at:
-                line += f" – zuletzt online {_fmt_time(p.state.last_online_at)}"
+                line += f" – last online {_fmt_time(p.state.last_online_at)}"
             if p.server_filter:
-                line += f" · nur `{p.server_filter}`"
+                line += f" · only `{p.server_filter}`"
             if p.state.consecutive_errors:
-                line += " · ⚠️ Abfrage fehlgeschlagen"
+                line += " · ⚠️ last lookup failed"
             lines.append(line)
 
-        embed = discord.Embed(title=f"Überwachte Spieler ({len(players)})", color=self.bot.settings.embed_color)
+        embed = discord.Embed(title=f"Watched players ({len(players)})", color=self.bot.settings.embed_color)
         description = ""
         for i, line in enumerate(lines):
             if len(description) + len(line) + 40 > 4000:
-                description += f"\n… und {len(lines) - i} weitere"
+                description += f"\n… and {len(lines) - i} more"
                 break
             description += line + "\n"
         embed.description = description
-        embed.set_footer(text="🟢 online · ⚫ offline · ❔ unbekannt · ⏸️ deaktiviert — Powered by status.tw")
+        embed.set_footer(text="🟢 online · ⚫ offline · ❔ unknown · ⏸️ paused — Powered by status.tw")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="status", description="Aktuellen Status eines registrierten Spielers live abfragen")
-    @app_commands.describe(spieler="Registrierter Spielername")
-    async def status(self, interaction: discord.Interaction, spieler: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
+    @app_commands.command(name="status", description="Look up the live status of a watched player")
+    @app_commands.describe(player="Name of a watched player")
+    async def status(self, interaction: discord.Interaction, player: app_commands.Range[str, 1, MAX_NAME_LENGTH]) -> None:
         if await self._require_reader(interaction):
             return
-        record = await self._registered_player(interaction, spieler)
+        record = await self._registered_player(interaction, player)
         if record is None:
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -290,23 +290,23 @@ class PlayerCommands(app_commands.Group):
             presence = await self.bot.api.get_player(record.name)
             current = _describe_presence(presence, record.server_filter)
         except PlayerNotFound:
-            current = "⚫ **offline** (status.tw kennt den Namen nicht)"
+            current = "⚫ **offline** (status.tw does not know this name)"
         except StatusTwError as exc:
-            current = f"⚠️ Live-Abfrage fehlgeschlagen: {exc}"
+            current = f"⚠️ Live lookup failed: {exc}"
 
         embed = discord.Embed(title=record.name, color=self.bot.settings.embed_color, description=current)
         url = self.bot.links.player_url(record.name, record.profile_url)
         if url:
             embed.url = url
-        embed.add_field(name="Überwachung", value="aktiv" if record.enabled else "deaktiviert")
-        embed.add_field(name="Gespeicherter Status", value=record.state.status.value)
-        embed.add_field(name="Zuletzt online", value=_fmt_time(record.state.last_online_at))
+        embed.add_field(name="Watching", value="active" if record.enabled else "paused")
+        embed.add_field(name="Stored status", value=record.state.status.value)
+        embed.add_field(name="Last online", value=_fmt_time(record.state.last_online_at))
         if record.server_filter:
-            embed.add_field(name="Bevorzugter Server", value=f"`{record.server_filter}`")
+            embed.add_field(name="Preferred server", value=f"`{record.server_filter}`")
         embed.set_footer(text="Powered by status.tw")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    remove.autocomplete("spieler")(_autocomplete_name)
-    enable.autocomplete("spieler")(_autocomplete_name)
-    disable.autocomplete("spieler")(_autocomplete_name)
-    status.autocomplete("spieler")(_autocomplete_name)
+    remove.autocomplete("player")(_autocomplete_name)
+    enable.autocomplete("player")(_autocomplete_name)
+    disable.autocomplete("player")(_autocomplete_name)
+    status.autocomplete("player")(_autocomplete_name)

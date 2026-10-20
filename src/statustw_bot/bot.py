@@ -187,7 +187,7 @@ class StatusBot(discord.Client):
         log.error("slash command failed", exc_info=error,
                   extra=fields(command=interaction.command.qualified_name if interaction.command else "-",
                                user=interaction.user.id))
-        message = "❌ Interner Fehler bei der Ausführung des Befehls. Details stehen im Log."
+        message = "❌ Something went wrong while running this command. Details are in the bot log."
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)

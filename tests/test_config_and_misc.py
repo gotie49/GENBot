@@ -123,6 +123,22 @@ def test_validators():
             validate_profile_url(bad)
 
 
+async def test_command_payload_is_english_and_valid():
+    client = discord.Client(intents=discord.Intents.none())
+    tree = discord.app_commands.CommandTree(client)
+    payload = PlayerCommands(bot=None).to_dict(tree)  # type: ignore[arg-type]
+    await client.close()
+    texts = [payload["description"]]
+    for sub in payload["options"]:
+        texts.append(sub["description"])
+        for opt in sub.get("options", []):
+            texts.append(opt["description"])
+            assert opt["name"] in {"player", "server", "profile_url"}
+    for text in texts:
+        assert len(text) <= 100
+        assert not any(ch in text for ch in "äöüÄÖÜß"), text
+
+
 def test_command_group_structure():
     group = PlayerCommands(bot=None)  # type: ignore[arg-type]
     names = sorted(c.name for c in group.commands)
@@ -130,4 +146,4 @@ def test_command_group_structure():
     assert group.guild_only
     for name in ("remove", "enable", "disable", "status"):
         cmd = group.get_command(name)
-        assert cmd._params["spieler"].autocomplete is not None
+        assert cmd._params["player"].autocomplete is not None

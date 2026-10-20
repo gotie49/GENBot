@@ -119,16 +119,16 @@ Die Tests brauchen weder Discord- noch status.tw-Zugangsdaten (die API wird loka
 ## 5. Spieler verwalten
 
 Alle Befehle sind Slash-Commands unter `/player` und funktionieren nur auf Servern (nicht in DMs).
-Antworten sind nur für den Aufrufenden sichtbar.
+Antworten sind nur für den Aufrufenden sichtbar. Alle Texte, die Discord-Nutzer sehen, sind englisch.
 
 | Befehl | Wirkung | Berechtigung |
 |---|---|---|
-| `/player add spieler:<Name> [server:<IPv4:Port>] [profil_url:<URL>]` | Spieler hinzufügen. Der Name wird bei status.tw geprüft (exakte Schreibweise, Groß-/Kleinschreibung zählt). `server` begrenzt die Benachrichtigung auf einen bestimmten Server. | Manager |
-| `/player remove spieler:<Name>` | Eintrag löschen | Manager |
-| `/player enable spieler:<Name>` | Überwachung fortsetzen | Manager |
-| `/player disable spieler:<Name>` | Überwachung pausieren, Eintrag bleibt | Manager |
+| `/player add player:<Name> [server:<IPv4:Port>] [profile_url:<URL>]` | Spieler hinzufügen. Der Name wird bei status.tw geprüft (exakte Schreibweise, Groß-/Kleinschreibung zählt). `server` begrenzt die Benachrichtigung auf einen bestimmten Server. | Manager |
+| `/player remove player:<Name>` | Eintrag löschen | Manager |
+| `/player enable player:<Name>` | Überwachung fortsetzen | Manager |
+| `/player disable player:<Name>` | Überwachung pausieren, Eintrag bleibt | Manager |
 | `/player list` | Alle Spieler mit letztem bekanntem Status | alle* |
-| `/player status spieler:<Name>` | Live-Abfrage bei status.tw | alle* |
+| `/player status player:<Name>` | Live-Abfrage bei status.tw | alle* |
 
 **Manager** = Serveradministratoren, zusätzlich Mitglieder der Rollen in `ADMIN_ROLE_IDS` und
 Nutzer in `ADMIN_USER_IDS`. \*`PUBLIC_READ_COMMANDS=false` beschränkt auch `list`/`status` auf Manager.
@@ -351,7 +351,7 @@ src/statustw_bot/
 
 | Geprüft | Ergebnis |
 |---|---|
-| Automatisierte Tests (`pytest`, 93 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
+| Automatisierte Tests (`pytest`, 94 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
 | status.tw-Endpunkte, Antwortformate, Header, Auth-Pflicht | ✅ live per HTTP geprüft; Parser mit echtem `/player/list`-Datensatz getestet |
 | Bot-Start mit ungültigem Token → saubere Fehlermeldung, Exit 1, kein Token im Log | ✅ |
 | Slash-Command-Payloads (Namen, Längen, nur Server-Kontext) | ✅ lokal erzeugt und geprüft |
@@ -359,7 +359,7 @@ src/statustw_bot/
 | Docker-Build amd64/arm64/armv7, Tests in allen drei Images (ARM per Emulation) | ✅ |
 | `compose up`, Neustart nach Fehler, Non-Root, Read-only-FS, Volume-Persistenz, Healthcheck, Backup/Restore | ✅ |
 | Echter Discord-Server mit lokalem status.tw-Simulator: Verbindung, Command-Sync, alle `/player`-Befehle, Online-Meldung, keine Doppelmeldung, API-Ausfall, offline→online, Neustart während online, Darstellung der Nachricht | ✅ |
-| Betrieb auf echter Raspberry-Pi-Hardware und gegen das echte status.tw | ❌ noch offen |
+| Betrieb auf echter Raspberry-Pi-Hardware (arm) gegen das echte status.tw: Start, `/player`-Befehle, Online-Meldung, keine Doppelmeldung, offline→online, Neustart des Pi | ✅ (vom Betreiber durchgeführt) |
 
 Empfohlene Abnahme: Bot auf einem Testserver einladen, `/player add` mit einem gerade aktiven
 Namen, warten bis der Spieler offline geht (Log `event=went_offline`) und wieder online kommt.
