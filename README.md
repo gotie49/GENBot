@@ -136,6 +136,44 @@ Nutzer in `ADMIN_USER_IDS`. \*`PUBLIC_READ_COMMANDS=false` beschränkt auch `lis
 Beim Hinzufügen wird **nicht** sofort benachrichtigt, auch wenn der Spieler gerade online ist –
 die erste Nachricht kommt beim nächsten Wechsel offline → online. Dasselbe gilt nach `enable`.
 
+### Statusliste (dauerhafte Nachricht)
+
+Optional pflegt der Bot in einem **eigenen Channel** eine dauerhafte Übersicht aller
+registrierten Spieler, die laufend aktualisiert wird statt neue Nachrichten zu posten:
+
+```
+┃ Gotie       🖥️ [A] |KoG| GER3 #26 - Insane Gores [kog.tw]   🟢 online now       (grün)
+┃ Kingjulius  🖥️ [A] |*KoG*| GER3 #26 - Extreme Gores [kog.tw] ⏰ 12 minutes ago   (grün)
+┃ KOF         🖥️ [A] |KoG| GER3 #29 - Mods Gores [kog.tw]     ⏰ 2 hours ago      (gelb)
+┃ mpampas     🖥️ [A] |KoG| GER3 #26 - Insane Gores [kog.tw]   ⏰ 18 hours ago     (rot)
+  🟢 <1h · 🟡 1–5h · 🔴 5–24h · ⚪ >24h · click server to connect
+```
+
+- Ein Embed pro Spieler; die Farbleiste zeigt, wie lange der Spieler offline ist. Sortiert:
+  online zuerst, dann nach „zuletzt online“. Discord erlaubt 10 Embeds pro Nachricht – ab
+  11 Spielern pflegt der Bot automatisch weitere Nachrichten darunter.
+- Die Zeitangabe ist ein Discord-Zeitstempel und zählt in jedem Client selbst weiter. Der Bot
+  bearbeitet die Nachricht nur, wenn sich wirklich etwas ändert (Status, Server, Farbstufe,
+  Spielerliste) – höchstens etwa einmal pro Prüfzyklus.
+- Wird eine Listen-Nachricht gelöscht, legt der Bot sie neu an. Die Nachrichten-IDs liegen in
+  der Datenbank, nach einem Neustart wird dieselbe Nachricht weiterbearbeitet.
+
+**Einrichten:**
+
+1. Einen eigenen Channel anlegen (z. B. `#player-status`), idealerweise so, dass nur der Bot
+   schreiben darf. Der Bot braucht dort *Kanal ansehen*, *Nachrichten senden*, *Links einbetten*.
+2. Kanal-ID als `DISCORD_STATUS_CHANNEL_ID` in `.env` eintragen (muss sich von
+   `DISCORD_CHANNEL_ID` unterscheiden).
+3. **Klick auf den Server → DDNet öffnen:** Discord macht `ddnet://`-Links nicht anklickbar.
+   Deshalb verlinkt der Bot auf eine kleine Weiterleitungsseite (`docs/connect/index.html`),
+   die sofort auf `ddnet://IP:Port` weiterleitet ([DDNet-Links](https://ddnet.org/news/ddnet-links/)).
+   Einmalig auf GitHub aktivieren: Repository → **Settings → Pages** → *Source: Deploy from a
+   branch* → Branch `master`, Ordner `/docs` → **Save**. Nach ein bis zwei Minuten ist die Seite unter
+   `https://gotie49.github.io/GENBot/connect/` erreichbar; `CONNECT_URL_TEMPLATE` in `.env.example`
+   zeigt bereits dorthin. Beim ersten Klick fragt der Browser, ob DDNet geöffnet werden darf.
+   Ohne `CONNECT_URL_TEMPLATE` verlinkt der Servername auf die status.tw-Serverseite.
+4. `docker compose up -d` – im Log erscheinen `status channel ready` und `status board updated`.
+
 ## 6. Dauerbetrieb auf dem Raspberry Pi
 
 Empfohlen: Raspberry Pi 3/4/5 mit **Raspberry Pi OS 64-bit** (arm64). 32-bit (armv7) wird
@@ -233,6 +271,7 @@ Alle Einstellungen sind Umgebungsvariablen (siehe `.env.example` mit Kommentaren
 | `DISCORD_BOT_TOKEN` | – (Pflicht) | Bot-Token |
 | `DISCORD_CHANNEL_ID` | – (Pflicht) | Channel für Benachrichtigungen |
 | `DISCORD_GUILD_ID` | leer | Server für sofortigen Command-Sync |
+| `DISCORD_STATUS_CHANNEL_ID` | leer | Channel für die dauerhafte Statusliste (leer = aus) |
 | `ADMIN_ROLE_IDS`, `ADMIN_USER_IDS` | leer | zusätzliche Manager (kommagetrennte IDs) |
 | `PUBLIC_READ_COMMANDS` | `true` | `list`/`status` für alle |
 | `STATUS_TW_API_KEY` | leer | optionales Bearer-Token |
@@ -249,6 +288,7 @@ Alle Einstellungen sind Umgebungsvariablen (siehe `.env.example` mit Kommentaren
 | `EMBED_COLOR` | `#701A75` | Farbe der Embed-Leiste |
 | `PLAYER_PROFILE_URL_TEMPLATE` | leer\* | Profil-Link, Platzhalter `{name}` |
 | `SERVER_URL_TEMPLATE` | leer\* | Server-Link, Platzhalter `{ip}`, `{port}` |
+| `CONNECT_URL_TEMPLATE` | leer\* | Server-Link in der Statusliste (Weiterleitung zu `ddnet://`), Platzhalter `{ip}`, `{port}` |
 | `LOG_LEVEL` | `INFO` | `DEBUG` … `CRITICAL` |
 | `DATABASE_PATH` | `data/bot.sqlite3` | im Container `/data/bot.sqlite3` |
 | `HEARTBEAT_FILE` | leer | im Container `/tmp/heartbeat` (Healthcheck) |
@@ -306,6 +346,7 @@ src/statustw_bot/
 ├── storage.py         SQLite via aiosqlite (läuft im Worker-Thread), Migrationen
 ├── monitor.py         Polling-Schleife: abfragen → bewerten → speichern → Benachrichtigung einreihen
 ├── notifier.py        Embed-Layout + serielle Sende-Queue mit Retry
+├── board.py           dauerhafte Statusliste: Rendering + Abgleich der Nachrichten
 ├── commands.py        /player-Slash-Commands, Eingabevalidierung, Berechtigungen
 ├── bot.py             discord.Client: verdrahtet alles, Lebenszyklus
 ├── backup.py          Online-Backup der Datenbank
@@ -351,7 +392,7 @@ src/statustw_bot/
 
 | Geprüft | Ergebnis |
 |---|---|
-| Automatisierte Tests (`pytest`, 94 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
+| Automatisierte Tests (`pytest`, 117 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
 | status.tw-Endpunkte, Antwortformate, Header, Auth-Pflicht | ✅ live per HTTP geprüft; Parser mit echtem `/player/list`-Datensatz getestet |
 | Bot-Start mit ungültigem Token → saubere Fehlermeldung, Exit 1, kein Token im Log | ✅ |
 | Slash-Command-Payloads (Namen, Längen, nur Server-Kontext) | ✅ lokal erzeugt und geprüft |

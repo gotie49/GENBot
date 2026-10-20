@@ -36,6 +36,15 @@ MIGRATIONS: tuple[str, ...] = (
         last_notified_at    TEXT
     );
     """,
+    # v2: messages that make up the persistent status board (one row per page, in order).
+    """
+    CREATE TABLE board_messages (
+        channel_id INTEGER NOT NULL,
+        position   INTEGER NOT NULL,
+        message_id INTEGER NOT NULL,
+        PRIMARY KEY (channel_id, position)
+    );
+    """,
 )
 
 
@@ -229,3 +238,22 @@ class Storage:
         await self.db.commit()
         return cur.rowcount == 1
 
+
+    # ------------------------------------------------------------------ status board
+
+    async def get_board_messages(self, channel_id: int) -> list[int]:
+        """Message IDs of the status board in ``channel_id``, in display order."""
+        async with self.db.execute(
+            "SELECT message_id FROM board_messages WHERE channel_id = ? ORDER BY position", (channel_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [int(r["message_id"]) for r in rows]
+
+    async def set_board_messages(self, channel_id: int, message_ids: list[int]) -> None:
+        """Replace the stored board messages. Rows of other channels (old config) are dropped."""
+        await self.db.execute("DELETE FROM board_messages")
+        await self.db.executemany(
+            "INSERT INTO board_messages (channel_id, position, message_id) VALUES (?, ?, ?)",
+            [(channel_id, i, mid) for i, mid in enumerate(message_ids)],
+        )
+        await self.db.commit()

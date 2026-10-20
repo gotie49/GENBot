@@ -71,3 +71,25 @@ async def test_search_names_escapes_wildcards(storage):
     await storage.add_player("a_b")
     await storage.add_player("axb")
     assert await storage.search_names("_") == ["a_b"]
+
+
+async def test_board_messages_roundtrip(storage):
+    assert await storage.get_board_messages(1) == []
+    await storage.set_board_messages(1, [11, 12])
+    assert await storage.get_board_messages(1) == [11, 12]
+    await storage.set_board_messages(2, [21])  # channel changed in config: old rows dropped
+    assert await storage.get_board_messages(1) == [] and await storage.get_board_messages(2) == [21]
+
+
+async def test_migration_from_v1(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as conn:  # database as created by version 1.0.0
+        conn.executescript(MIGRATIONS[0] + "PRAGMA user_version = 1;")
+        conn.execute("INSERT INTO players (name, created_at) VALUES ('Smash', '2026-10-20T00:00:00+00:00')")
+    s = Storage(str(path))
+    await s.open()
+    assert [p.name for p in await s.list_players()] == ["Smash"]
+    assert await s.get_board_messages(1) == []
+    await s.close()

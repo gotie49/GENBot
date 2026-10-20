@@ -28,6 +28,7 @@ def test_defaults():
     assert s.player_profile_url_template is None and s.server_url_template is None
     assert s.public_read_commands is True
     assert s.admin_role_ids == frozenset()
+    assert s.discord_status_channel_id is None and s.connect_url_template is None
 
 
 def test_secrets_not_in_repr():
@@ -51,6 +52,10 @@ def test_secrets_not_in_repr():
         {"EMBED_COLOR": "purple"},
         {"API_REQUEST_BUDGET_PER_MINUTE": "101"},
         {"STATUS_TW_BASE_URL": "http://api.status.tw"},
+        {"DISCORD_STATUS_CHANNEL_ID": "status"},
+        {"DISCORD_STATUS_CHANNEL_ID": "123456789012345678"},  # same as DISCORD_CHANNEL_ID
+        {"CONNECT_URL_TEMPLATE": "ddnet://{ip}:{port}"},  # Discord only links https
+        {"CONNECT_URL_TEMPLATE": "https://example.org/connect/#{ip}"},
     ],
 )
 def test_invalid_values_rejected(override):
@@ -70,11 +75,14 @@ def test_full_config():
         "PLAYER_PROFILE_URL_TEMPLATE": "https://status.tw/players/{name}",
         "SERVER_URL_TEMPLATE": "https://status.tw/servers/{ip}/{port}",
         "EMBED_COLOR": "#123456",
+        "DISCORD_STATUS_CHANNEL_ID": "99",
+        "CONNECT_URL_TEMPLATE": "https://gotie49.github.io/GENBot/connect/#{ip}:{port}",
         "LOG_LEVEL": "debug",
     })
     assert s.discord_guild_id == 42 and s.poll_strategy is PollStrategy.BULK
     assert s.startup_strategy is StartupStrategy.RESUME and s.admin_role_ids == {1, 2, 3}
     assert not s.public_read_commands and s.embed_color == 0x123456 and s.log_level == "DEBUG"
+    assert s.discord_status_channel_id == 99 and s.connect_url_template.endswith("#{ip}:{port}")
 
 
 def test_load_dotenv(tmp_path):
@@ -147,3 +155,15 @@ def test_command_group_structure():
     for name in ("remove", "enable", "disable", "status"):
         cmd = group.get_command(name)
         assert cmd._params["player"].autocomplete is not None
+
+
+async def test_status_board_is_optional():
+    from statustw_bot.bot import StatusBot
+
+    without = StatusBot(Settings.from_env(BASE))
+    assert without.board is None
+    without.refresh_board()  # no-op, must not fail
+    with_board = StatusBot(Settings.from_env({**BASE, "DISCORD_STATUS_CHANNEL_ID": "987654321098765432"}))
+    assert with_board.board is not None
+    for bot in (without, with_board):
+        await bot.close()

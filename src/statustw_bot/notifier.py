@@ -52,6 +52,7 @@ class LinkTemplates:
 
     player_profile: str | None = None  # placeholders: {name}
     server: str | None = None  # placeholders: {ip}, {port}
+    connect: str | None = None  # https page that forwards to ddnet://{ip}:{port}
 
     def player_url(self, name: str, override: str | None = None) -> str | None:
         if override:
@@ -61,9 +62,16 @@ class LinkTemplates:
         return self.player_profile.replace("{name}", quote(name, safe=""))
 
     def server_url(self, ip: str | None, port: int | None) -> str | None:
-        if not self.server or ip is None or port is None:
-            return None
-        return self.server.replace("{ip}", quote(ip, safe="")).replace("{port}", str(int(port)))
+        return _fill_address(self.server, ip, port)
+
+    def connect_url(self, ip: str | None, port: int | None) -> str | None:
+        return _fill_address(self.connect, ip, port)
+
+
+def _fill_address(template: str | None, ip: str | None, port: int | None) -> str | None:
+    if not template or ip is None or port is None:
+        return None
+    return template.replace("{ip}", quote(ip, safe="")).replace("{port}", str(int(port)))
 
 
 def escape_text(text: str) -> str:

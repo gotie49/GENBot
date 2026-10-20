@@ -50,8 +50,10 @@ class PresenceMonitor:
         options: MonitorOptions,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        on_cycle: Callable[[], None] | None = None,
     ) -> None:
         self._storage = storage
+        self._on_cycle = on_cycle
         self._api = api
         self._notify = notify
         self._options = options
@@ -97,6 +99,8 @@ class PresenceMonitor:
             except Exception:
                 log.exception("poll cycle failed unexpectedly")
             self._write_heartbeat()
+            if self._on_cycle is not None:
+                self._on_cycle()
             remaining = max(1.0, interval - (time.monotonic() - started))
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=remaining)

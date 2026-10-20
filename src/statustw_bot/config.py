@@ -150,6 +150,7 @@ class Settings:
     discord_bot_token: str = field(repr=False)
     discord_channel_id: int
     discord_guild_id: int | None
+    discord_status_channel_id: int | None
     status_tw_api_key: str | None = field(repr=False)
     status_tw_base_url: str
     poll_interval_seconds: int
@@ -168,6 +169,7 @@ class Settings:
     public_read_commands: bool
     player_profile_url_template: str | None
     server_url_template: str | None
+    connect_url_template: str | None
     embed_color: int
     heartbeat_file: str | None
 
@@ -192,6 +194,12 @@ class Settings:
         if guild_raw is not None and not guild_raw.isdigit():
             raise ConfigError("DISCORD_GUILD_ID must be a numeric Discord server (guild) ID")
 
+        status_channel_raw = _get_str(env, "DISCORD_STATUS_CHANNEL_ID")
+        if status_channel_raw is not None and not status_channel_raw.isdigit():
+            raise ConfigError("DISCORD_STATUS_CHANNEL_ID must be a numeric Discord channel ID")
+        if status_channel_raw is not None and status_channel_raw == channel_raw:
+            raise ConfigError("DISCORD_STATUS_CHANNEL_ID must differ from DISCORD_CHANNEL_ID")
+
         log_level = (_get_str(env, "LOG_LEVEL", "INFO") or "INFO").upper()
         if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigError(f"LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR or CRITICAL; got {log_level!r}")
@@ -214,6 +222,7 @@ class Settings:
             discord_bot_token=token,
             discord_channel_id=int(channel_raw),
             discord_guild_id=int(guild_raw) if guild_raw else None,
+            discord_status_channel_id=int(status_channel_raw) if status_channel_raw else None,
             status_tw_api_key=_get_str(env, "STATUS_TW_API_KEY"),
             status_tw_base_url=base_url,
             poll_interval_seconds=_get_int(env, "POLL_INTERVAL_SECONDS", 60, minimum=15, maximum=3600),
@@ -233,6 +242,7 @@ class Settings:
             public_read_commands=_get_bool(env, "PUBLIC_READ_COMMANDS", True),
             player_profile_url_template=_get_url_template(env, "PLAYER_PROFILE_URL_TEMPLATE", ("name",)),
             server_url_template=_get_url_template(env, "SERVER_URL_TEMPLATE", ("ip", "port")),
+            connect_url_template=_get_url_template(env, "CONNECT_URL_TEMPLATE", ("ip", "port")),
             embed_color=embed_color,
             heartbeat_file=_get_str(env, "HEARTBEAT_FILE"),
         )

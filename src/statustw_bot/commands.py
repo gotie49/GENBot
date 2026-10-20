@@ -196,6 +196,7 @@ class PlayerCommands(app_commands.Group):
             await interaction.followup.send(f"ℹ️ **{escape_text(name)}** is already being watched.", ephemeral=True)
             return
         self.bot.monitor.forget(record.id)
+        self.bot.refresh_board()
         log.info("player added", extra=fields(player=name, by=interaction.user.id, server_filter=server_filter or "-"))
 
         status = _describe_presence(presence, server_filter) if presence else "❔ unknown"
@@ -215,6 +216,7 @@ class PlayerCommands(app_commands.Group):
             return
         await self.bot.storage.remove_player(record.name)
         self.bot.monitor.forget(record.id)
+        self.bot.refresh_board()
         log.info("player removed", extra=fields(player=record.name, by=interaction.user.id))
         await interaction.response.send_message(f"🗑️ Removed **{escape_text(record.name)}**.", ephemeral=True)
 
@@ -240,6 +242,7 @@ class PlayerCommands(app_commands.Group):
             return
         await self.bot.storage.set_enabled(record.name, enabled)
         self.bot.monitor.forget(record.id)
+        self.bot.refresh_board()
         log.info("player toggled", extra=fields(player=record.name, enabled=enabled, by=interaction.user.id))
         text = "▶️ Resumed watching" if enabled else "⏸️ Paused watching"
         await interaction.response.send_message(f"{text}: **{escape_text(record.name)}**", ephemeral=True)

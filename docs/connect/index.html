@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Connect to server</title>
+<style>
+  :root { color-scheme: dark; --bg: #1e1f22; --card: #2b2d31; --text: #dbdee1; --muted: #949ba4; --accent: #5865f2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg);
+         color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  main { background: var(--card); border-radius: 12px; padding: 28px; max-width: 460px; width: 100%; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 8px 0; color: var(--muted); }
+  code { display: block; background: var(--bg); color: var(--text); padding: 10px 12px; border-radius: 8px;
+         margin: 12px 0; word-break: break-all; font-size: 15px; }
+  a.button { display: inline-block; background: var(--accent); color: #fff; text-decoration: none;
+             padding: 10px 16px; border-radius: 8px; font-weight: 600; }
+  .error { color: #f23f43; }
+</style>
+</head>
+<body>
+<main id="app">
+  <h1>Connect to server</h1>
+  <noscript><p class="error">JavaScript is required for the automatic redirect.</p></noscript>
+</main>
+<script>
+  // Usage: /connect/#<ip>:<port>  ->  ddnet://<ip>:<port>  (https://ddnet.org/news/ddnet-links/)
+  // Only plain host names / IPv4 addresses with an optional port are accepted, so this page
+  // cannot be abused as an open redirect.
+  (function () {
+    var app = document.getElementById("app");
+    var target = "";
+    try { target = decodeURIComponent(location.hash.replace(/^#/, "")).trim(); } catch (e) { /* malformed */ }
+    var valid = /^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/.test(target);
+    var port = valid && target.indexOf(":") > -1 ? Number(target.split(":")[1]) : 8303;
+    if (!valid || port < 1 || port > 65535) {
+      app.insertAdjacentHTML("beforeend", '<p class="error">Invalid or missing server address.</p>');
+      return;
+    }
+    var url = "ddnet://" + target;
+    var p = document.createElement("p");
+    p.textContent = "Opening DDNet… If nothing happens, make sure DDNet is installed, then use the button or copy the address.";
+    var code = document.createElement("code");
+    code.textContent = url;
+    var a = document.createElement("a");
+    a.className = "button";
+    a.href = url;
+    a.textContent = "Open in DDNet";
+    app.appendChild(p);
+    app.appendChild(code);
+    app.appendChild(a);
+    location.replace(url);
+  })();
+</script>
+</body>
+</html>

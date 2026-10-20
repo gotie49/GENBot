@@ -8,6 +8,7 @@ import logging
 import discord
 from discord import app_commands
 
+from .board import ChannelBoardTransport, StatusBoard
 from .commands import PlayerCommands
 from .config import Settings
 from .logging_setup import fields
@@ -49,7 +50,17 @@ class StatusBot(discord.Client):
         self.links = LinkTemplates(
             player_profile=settings.player_profile_url_template,
             server=settings.server_url_template,
+            connect=settings.connect_url_template,
         )
+        self.board: StatusBoard | None = None
+        if settings.discord_status_channel_id:
+            self.board = StatusBoard(
+                self.storage,
+                ChannelBoardTransport(self._resolve_status_channel),
+                settings.discord_status_channel_id,
+                self.links,
+                ready=self.wait_until_ready,
+            )
         self.notifications = NotificationQueue(
             self._send_to_channel,
             self.links,
@@ -68,8 +79,9 @@ class StatusBot(discord.Client):
                 notify_cooldown_seconds=settings.notify_cooldown_seconds,
                 heartbeat_file=settings.heartbeat_file,
             ),
+            on_cycle=self.refresh_board,
         )
-        self._channel: discord.abc.Messageable | None = None
+        self._channels: dict[int, discord.abc.Messageable] = {}
         self._monitor_task: asyncio.Task[None] | None = None
         self._closing = False
 
@@ -110,6 +122,8 @@ class StatusBot(discord.Client):
                      extra=fields(commands=len(synced)))
 
         self.notifications.start()
+        if self.board is not None:
+            self.board.start()
         self._monitor_task = asyncio.create_task(self.monitor.run_forever(), name="presence-monitor")
         self._monitor_task.add_done_callback(self._on_monitor_done)
 
@@ -117,6 +131,8 @@ class StatusBot(discord.Client):
         log.info("connected to Discord", extra=fields(user=str(self.user), user_id=self.user.id if self.user else "-",
                                                       guilds=len(self.guilds)))
         await self._resolve_channel()
+        if self.settings.discord_status_channel_id:
+            await self._resolve_status_channel()
 
     async def close(self) -> None:
         if self._closing:
@@ -133,6 +149,8 @@ class StatusBot(discord.Client):
                 pass  # already logged by the done callback
         await self.notifications.drain(SHUTDOWN_DRAIN_SECONDS)
         await self.notifications.stop()
+        if self.board is not None:
+            await self.board.stop()
         await self.api.close()
         await self.storage.close()
         await super().close()
@@ -148,32 +166,45 @@ class StatusBot(discord.Client):
 
     # ------------------------------------------------------------------ helpers
 
+    def refresh_board(self) -> None:
+        """Ask the status board (if configured) to re-render soon."""
+        if self.board is not None:
+            self.board.request_refresh()
+
     async def _resolve_channel(self) -> discord.abc.Messageable | None:
-        if self._channel is not None:
-            return self._channel
-        channel_id = self.settings.discord_channel_id
+        return await self._resolve_text_channel(self.settings.discord_channel_id, "notification", "DISCORD_CHANNEL_ID")
+
+    async def _resolve_status_channel(self) -> discord.abc.Messageable | None:
+        channel_id = self.settings.discord_status_channel_id
+        if channel_id is None:
+            return None
+        return await self._resolve_text_channel(channel_id, "status", "DISCORD_STATUS_CHANNEL_ID")
+
+    async def _resolve_text_channel(self, channel_id: int, purpose: str, env_name: str) -> discord.abc.Messageable | None:
+        if channel_id in self._channels:
+            return self._channels[channel_id]
         channel = self.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await self.fetch_channel(channel_id)
             except (discord.NotFound, discord.Forbidden) as exc:
-                log.error("notification channel not accessible; check DISCORD_CHANNEL_ID and bot permissions",
+                log.error(f"{purpose} channel not accessible; check {env_name} and bot permissions",
                           extra=fields(channel=channel_id, status=exc.status))
                 return None
         if not isinstance(channel, discord.abc.Messageable):
-            log.error("DISCORD_CHANNEL_ID is not a text channel", extra=fields(channel=channel_id))
+            log.error(f"{env_name} is not a text channel", extra=fields(channel=channel_id))
             return None
         if isinstance(channel, discord.abc.GuildChannel):
             perms = channel.permissions_for(channel.guild.me)
             missing = [n for n, ok in (("view_channel", perms.view_channel), ("send_messages", perms.send_messages),
                                        ("embed_links", perms.embed_links)) if not ok]
             if missing:
-                log.error("bot lacks permissions in notification channel", extra=fields(channel=channel_id,
-                                                                                     missing=",".join(missing)))
+                log.error(f"bot lacks permissions in {purpose} channel", extra=fields(channel=channel_id,
+                                                                                   missing=",".join(missing)))
             else:
-                log.info("notification channel ready", extra=fields(channel=channel_id, name=channel.name,
-                                                                    guild=channel.guild.name))
-        self._channel = channel
+                log.info(f"{purpose} channel ready", extra=fields(channel=channel_id, name=channel.name,
+                                                                guild=channel.guild.name))
+        self._channels[channel_id] = channel
         return channel
 
     async def _send_to_channel(self, embed: discord.Embed) -> None:
