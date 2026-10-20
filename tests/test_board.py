@@ -12,6 +12,7 @@ from statustw_bot.board import (
     StatusBoard,
     build_pages,
     color_for,
+    format_ago,
     player_line,
 )
 from statustw_bot.notifier import LinkTemplates
@@ -54,29 +55,55 @@ def test_color_buckets(status, ago, color):
     assert color_for(record("x", status=status, ago=ago), NOW) == color
 
 
-def test_offline_line_has_connect_link_and_relative_time():
-    line = player_line(record("Kingjulius", ago=timedelta(minutes=12)), LINKS)
-    ts = int((NOW - timedelta(minutes=12)).timestamp())
+@pytest.mark.parametrize(
+    ("ago", "text"),
+    [
+        (timedelta(seconds=20), "just now"),
+        (timedelta(minutes=18), "18m ago"),
+        (timedelta(hours=2, minutes=15), "2h 15m ago"),
+        (timedelta(hours=3), "3h ago"),
+        (timedelta(hours=4, minutes=50), "4h 50m ago"),
+        (timedelta(hours=18, minutes=40), "18h ago"),
+        (timedelta(days=3, hours=5), "3d ago"),
+    ],
+)
+def test_format_ago(ago, text):
+    assert format_ago(ago) == text
+
+
+def test_offline_line_has_connect_link_and_short_time():
+    line = player_line(record("Kingjulius", ago=timedelta(minutes=12)), LINKS, NOW)
     assert line == (
-        "**Kingjulius**  🖥️ [[A] ǀ∗KoG∗ǀ GER3 #26 - Extreme Gores [kog.tw]]"
-        f"(https://gotie49.github.io/GENBot/connect/#116.203.164.237:8303)  ⏰ <t:{ts}:R>"
+        "**Kingjulius**   [[A] ǀ∗KoG∗ǀ GER3 #26 - Extreme Gores [kog.tw]]"
+        "(https://gotie49.github.io/GENBot/connect/#116.203.164.237:8303)   12m ago"
     )
 
 
+def test_lines_contain_no_emoji():
+    rows = [
+        record("a", status=Status.ONLINE, ago=timedelta(0)),
+        record("b", ago=timedelta(hours=2)),
+        record("c"),
+        record("d", ago=timedelta(hours=1), enabled=False),
+    ]
+    for r in rows:
+        assert all(ord(ch) < 0x2000 or ch in "ǀ∗∼ˋˍ" for ch in player_line(r, LINKS, NOW)), r.name
+
+
 def test_online_line_and_fallbacks():
-    assert player_line(record("Gotie", status=Status.ONLINE, ago=timedelta(0)), LINKS).endswith("🟢 online now")
+    assert player_line(record("Gotie", status=Status.ONLINE, ago=timedelta(0)), LINKS, NOW).endswith("   online now")
     # Without a connect template the status.tw server page is used.
-    line = player_line(record("a", ago=timedelta(hours=1)), LinkTemplates(server="https://status.tw/servers/{ip}/{port}"))
+    line = player_line(record("a", ago=timedelta(hours=1)), LinkTemplates(server="https://status.tw/servers/{ip}/{port}"), NOW)
     assert "(https://status.tw/servers/116.203.164.237/8303)" in line
     # Without any template the server name is plain (escaped) text.
-    assert "🖥️ \\[A\\] \\|\\*KoG\\*\\|" in player_line(record("a", ago=timedelta(hours=1)), LinkTemplates())
-    assert player_line(record("new", status=Status.UNKNOWN), LINKS) == "**new**  ❔ not checked yet"
-    assert player_line(record("ghost"), LINKS) == "**ghost**  ⏰ not seen online yet"
-    assert player_line(record("p", ago=timedelta(hours=1), enabled=False), LINKS).endswith("⏸️ paused")
-    assert player_line(record("under_score*"), LINKS).startswith("**under\\_score\\***")
+    assert "   \\[A\\] \\|\\*KoG\\*\\|" in player_line(record("a", ago=timedelta(hours=1)), LinkTemplates(), NOW)
+    assert player_line(record("new", status=Status.UNKNOWN), LINKS, NOW) == "**new**   never"
+    assert player_line(record("ghost"), LINKS, NOW) == "**ghost**   never"
+    assert player_line(record("p", ago=timedelta(hours=1), enabled=False), LINKS, NOW).endswith("   (paused)")
+    assert player_line(record("under_score*"), LINKS, NOW).startswith("**under\\_score\\***")
 
 
-def test_pages_sorted_and_chunked_with_footer_on_last_embed():
+def test_pages_sorted_chunked_full_width_and_without_legend():
     players = [record(f"p{i:02}", ago=timedelta(minutes=i + 1), pid=i) for i in range(23)]
     players.append(record("online", status=Status.ONLINE, ago=timedelta(0), pid=99))
     players.append(record("never", pid=100))
@@ -86,14 +113,20 @@ def test_pages_sorted_and_chunked_with_footer_on_last_embed():
     assert flat[0].description.startswith("**online**")
     assert flat[1].description.startswith("**p00**") and flat[-2].description.startswith("**p22**")
     assert flat[-1].description.startswith("**never**")
-    assert [e.footer.text for e in flat[:-1]] == [None] * 24
-    assert flat[-1].footer.text == "🟢 <1h · 🟡 1–5h · 🔴 5–24h · ⚪ >24h · click server to connect"
+    assert all(e.footer.text is None for e in flat)
+    assert all(e.image.url == "attachment://spacer.png" for e in flat)
 
 
-def test_empty_board_and_no_connect_hint():
+def test_empty_board():
     pages = build_pages([], LinkTemplates(), NOW)
     assert len(pages) == 1 and "No players" in pages[0][0].description
-    assert "click server" not in pages[0][0].footer.text
+
+
+def test_time_text_changes_trigger_edits_only_per_minute():
+    rec = record("a", ago=timedelta(minutes=10))
+    first = build_pages([rec], LINKS, NOW)[0][0].description
+    assert build_pages([rec], LINKS, NOW + timedelta(seconds=30))[0][0].description == first
+    assert build_pages([rec], LINKS, NOW + timedelta(minutes=1))[0][0].description != first
 
 
 class FakeTransport:
@@ -197,7 +230,7 @@ async def test_colour_change_over_time_triggers_edit(storage):
     rec = await storage.add_player("a")
     await storage.save_state(rec.id, PresenceState(status=Status.OFFLINE, last_online_at=NOW - timedelta(minutes=50)))
     await board.refresh()
-    now[0] = NOW + timedelta(minutes=5)  # 55 min: still the same bucket -> no Discord call
+    now[0] = NOW + timedelta(seconds=40)  # same displayed minute -> no Discord call
     assert (await board.refresh()).skipped
     now[0] = NOW + timedelta(minutes=15)  # 65 min: crosses the 1 h bucket
     assert (await board.refresh()).edited == 1

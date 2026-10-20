@@ -5,16 +5,20 @@ messages). The left border colour encodes how recently the player was online:
 
     green  online now or < 1 h      yellow 1–5 h      red 5–24 h      white > 24 h
 
-Times are Discord timestamps (``<t:…:R>``), so "12 minutes ago" keeps counting in
-every client without the bot editing the message. The bot only edits when the
-rendered content actually changes (status, server, colour bucket, player list).
+Every embed carries the same invisible 1000x1 px image so that Discord renders all
+bars at full width (embeds otherwise shrink to their text). Times are short texts
+written by the bot ("18m ago", "2h 15m ago"); the bot only edits when the rendered
+content changes, which is at most about once a minute.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
+import struct
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Protocol, Sequence
@@ -36,7 +40,40 @@ COLOR_DAY = 0xF23F43  # 5–24 h
 COLOR_OLD = 0xDBDEE1  # > 24 h
 COLOR_NEVER = 0x4E5058  # never seen online
 
-LEGEND = "🟢 <1h · 🟡 1–5h · 🔴 5–24h · ⚪ >24h"
+SPACER_FILENAME = "spacer.png"
+
+
+def _spacer_png(width: int = 1000, height: int = 1) -> bytes:
+    """Fully transparent PNG; generated in code so no asset has to be shipped or hosted."""
+    raw = b"".join(b"\x00" + b"\x00\x00\x00\x00" * width for _ in range(height))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+SPACER_PNG = _spacer_png()
+
+
+def spacer_file() -> discord.File:
+    return discord.File(io.BytesIO(SPACER_PNG), filename=SPACER_FILENAME)
+
+
+def format_ago(delta: timedelta) -> str:
+    """Compact age like the design: 18m ago, 2h 15m ago, 18h ago, 3d ago."""
+    minutes = max(0, int(delta.total_seconds() // 60))
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours, rest = divmod(minutes, 60)
+    if hours < 5:
+        return f"{hours}h {rest}m ago" if rest else f"{hours}h ago"
+    if hours < 24:
+        return f"{hours}h ago"
+    return f"{hours // 24}d ago"
 
 
 def color_for(player: PlayerRecord, now: datetime) -> int:
@@ -68,42 +105,39 @@ def _split_address(address: str | None) -> tuple[str | None, int | None]:
     return (ip, int(port)) if ip and port.isdigit() else (None, None)
 
 
-def player_line(player: PlayerRecord, links: LinkTemplates) -> str:
+def player_line(player: PlayerRecord, links: LinkTemplates, now: datetime) -> str:
     state = player.state
     parts = [f"**{escape_text(player.name)}**"]
 
     if state.last_server_name:
         ip, port = _split_address(state.last_server_address)
         url = links.connect_url(ip, port) or links.server_url(ip, port)
-        server = f"[{link_text(state.last_server_name)}]({url})" if url else escape_text(state.last_server_name)
-        parts.append(f"🖥️ {server}")
+        parts.append(f"[{link_text(state.last_server_name)}]({url})" if url else escape_text(state.last_server_name))
 
     if state.status is Status.ONLINE:
-        parts.append("🟢 online now")
+        parts.append("online now")
     elif state.last_online_at is not None:
-        parts.append(f"⏰ <t:{int(state.last_online_at.timestamp())}:R>")
-    elif state.status is Status.UNKNOWN:
-        parts.append("❔ not checked yet")
+        parts.append(format_ago(now - state.last_online_at))
     else:
-        parts.append("⏰ not seen online yet")
+        parts.append("never")
 
     if not player.enabled:
-        parts.append("⏸️ paused")
-    return "  ".join(parts)
+        parts.append("(paused)")
+    return "   ".join(parts)
+
+
+def _row(description: str, color: int) -> discord.Embed:
+    embed = discord.Embed(description=description, color=color)
+    embed.set_image(url=f"attachment://{SPACER_FILENAME}")
+    return embed
 
 
 def build_pages(players: Sequence[PlayerRecord], links: LinkTemplates, now: datetime) -> list[list[discord.Embed]]:
-    """Render the board: a list of messages, each a list of up to 10 embeds."""
+    """Render the board: a list of messages, each a list of up to 10 embeds (one per player)."""
     if not players:
-        embed = discord.Embed(description="No players are being watched yet. Use `/player add`.", color=COLOR_NEVER)
-        embeds = [embed]
+        embeds = [_row("No players are being watched yet. Use `/player add`.", COLOR_NEVER)]
     else:
-        embeds = [
-            discord.Embed(description=player_line(p, links), color=color_for(p, now))
-            for p in sorted(players, key=_sort_key)
-        ]
-    footer = LEGEND + (" · click server to connect" if links.connect else "")
-    embeds[-1].set_footer(text=footer)
+        embeds = [_row(player_line(p, links, now), color_for(p, now)) for p in sorted(players, key=_sort_key)]
     return [embeds[i : i + EMBEDS_PER_MESSAGE] for i in range(0, len(embeds), EMBEDS_PER_MESSAGE)]
 
 
@@ -254,13 +288,16 @@ class ChannelBoardTransport:
         return channel
 
     async def send(self, embeds: list[discord.Embed]) -> int:
-        message = await (await self._channel()).send(embeds=embeds)
+        message = await (await self._channel()).send(embeds=embeds, file=spacer_file())
         return message.id
 
     async def edit(self, message_id: int, embeds: list[discord.Embed]) -> None:
         channel = await self._channel()
         try:
-            await channel.get_partial_message(message_id).edit(embeds=embeds)  # type: ignore[attr-defined]
+            # Re-attach the spacer on every edit so boards created by older versions get it too.
+            await channel.get_partial_message(message_id).edit(  # type: ignore[attr-defined]
+                embeds=embeds, attachments=[spacer_file()]
+            )
         except discord.NotFound as exc:
             raise MessageMissing(message_id) from exc
 
