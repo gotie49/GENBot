@@ -45,11 +45,30 @@ MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (channel_id, position)
     );
     """,
+    # v3: additional in-game names per watched person, and which name was seen online last.
+    """
+    CREATE TABLE player_aliases (
+        player_id INTEGER NOT NULL,
+        position  INTEGER NOT NULL,
+        name      TEXT    NOT NULL UNIQUE,
+        PRIMARY KEY (player_id, position)
+    );
+    ALTER TABLE players ADD COLUMN last_seen_name TEXT;
+    """,
 )
 
 
 class PlayerAlreadyExists(Exception):
     pass
+
+
+class NameConflict(Exception):
+    """A name is already the main name or an alias of another watched person."""
+
+    def __init__(self, name: str, owner: str) -> None:
+        super().__init__(f"{name!r} already belongs to {owner!r}")
+        self.name = name
+        self.owner = owner
 
 
 @dataclass(frozen=True)
@@ -62,6 +81,12 @@ class PlayerRecord:
     added_by: int | None
     created_at: datetime
     state: PresenceState
+    aliases: tuple[str, ...] = ()
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Main name first, then the aliases in their configured order."""
+        return (self.name, *self.aliases)
 
 
 def _ts(value: datetime | None) -> str | None:
@@ -72,7 +97,7 @@ def _dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
-def _row_to_record(row: aiosqlite.Row) -> PlayerRecord:
+def _row_to_record(row: aiosqlite.Row, aliases: tuple[str, ...] = ()) -> PlayerRecord:
     try:
         status = Status(row["status"])
     except ValueError:
@@ -96,7 +121,9 @@ def _row_to_record(row: aiosqlite.Row) -> PlayerRecord:
             consecutive_errors=row["consecutive_errors"],
             session_announced=bool(row["session_announced"]),
             last_notified_at=_dt(row["last_notified_at"]),
+            last_seen_name=row["last_seen_name"],
         ),
+        aliases=aliases,
     )
 
 
@@ -151,6 +178,9 @@ class Storage:
         now: datetime | None = None,
     ) -> PlayerRecord:
         now = now or datetime.now(timezone.utc)
+        owner = await self.find_owner(name)
+        if owner is not None and owner != name:
+            raise NameConflict(name, owner)
         try:
             cur = await self.db.execute(
                 "INSERT INTO players (name, profile_url, server_filter, added_by, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -164,6 +194,9 @@ class Storage:
         return record
 
     async def remove_player(self, name: str) -> bool:
+        await self.db.execute(
+            "DELETE FROM player_aliases WHERE player_id IN (SELECT id FROM players WHERE name = ?)", (name,)
+        )
         cur = await self.db.execute("DELETE FROM players WHERE name = ?", (name,))
         await self.db.commit()
         return cur.rowcount == 1
@@ -184,18 +217,58 @@ class Storage:
     async def get_player(self, name: str) -> PlayerRecord | None:
         async with self.db.execute("SELECT * FROM players WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
-        return _row_to_record(row) if row else None
+        return await self._with_aliases(row) if row else None
 
     async def get_player_by_id(self, player_id: int) -> PlayerRecord | None:
         async with self.db.execute("SELECT * FROM players WHERE id = ?", (player_id,)) as cur:
             row = await cur.fetchone()
-        return _row_to_record(row) if row else None
+        return await self._with_aliases(row) if row else None
 
     async def list_players(self, *, enabled_only: bool = False) -> list[PlayerRecord]:
         sql = "SELECT * FROM players" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY name COLLATE NOCASE"
         async with self.db.execute(sql) as cur:
             rows = await cur.fetchall()
-        return [_row_to_record(r) for r in rows]
+        aliases: dict[int, list[str]] = {}
+        async with self.db.execute("SELECT player_id, name FROM player_aliases ORDER BY player_id, position") as cur:
+            for alias_row in await cur.fetchall():
+                aliases.setdefault(alias_row["player_id"], []).append(alias_row["name"])
+        return [_row_to_record(r, tuple(aliases.get(r["id"], ()))) for r in rows]
+
+    async def _with_aliases(self, row: aiosqlite.Row) -> PlayerRecord:
+        async with self.db.execute(
+            "SELECT name FROM player_aliases WHERE player_id = ? ORDER BY position", (row["id"],)
+        ) as cur:
+            aliases = tuple(r["name"] for r in await cur.fetchall())
+        return _row_to_record(row, aliases)
+
+    async def find_owner(self, name: str) -> str | None:
+        """Main name of the person that uses ``name`` as main name or alias."""
+        async with self.db.execute(
+            """
+            SELECT name FROM players WHERE name = ?
+            UNION ALL
+            SELECT p.name FROM player_aliases a JOIN players p ON p.id = a.player_id WHERE a.name = ?
+            """,
+            (name, name),
+        ) as cur:
+            row = await cur.fetchone()
+        return row["name"] if row else None
+
+    async def set_aliases(self, player_id: int, aliases: list[str]) -> None:
+        """Replace all aliases of a person. Raises NameConflict if a name belongs to someone else."""
+        record = await self.get_player_by_id(player_id)
+        if record is None:
+            raise KeyError(player_id)
+        for alias in aliases:
+            owner = await self.find_owner(alias)
+            if owner is not None and owner != record.name:
+                raise NameConflict(alias, owner)
+        await self.db.execute("DELETE FROM player_aliases WHERE player_id = ?", (player_id,))
+        await self.db.executemany(
+            "INSERT INTO player_aliases (player_id, position, name) VALUES (?, ?, ?)",
+            [(player_id, i, alias) for i, alias in enumerate(aliases)],
+        )
+        await self.db.commit()
 
     async def search_names(self, prefix: str, limit: int = 25) -> list[str]:
         escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -218,7 +291,7 @@ class Storage:
             UPDATE players SET
                 status = ?, status_changed_at = ?, last_checked_at = ?, last_online_at = ?,
                 last_server_name = ?, last_server_address = ?, offline_streak = ?,
-                consecutive_errors = ?, session_announced = ?, last_notified_at = ?
+                consecutive_errors = ?, session_announced = ?, last_notified_at = ?, last_seen_name = ?
             WHERE id = ? AND enabled = 1
             """,
             (
@@ -232,6 +305,7 @@ class Storage:
                 state.consecutive_errors,
                 int(state.session_announced),
                 _ts(state.last_notified_at),
+                state.last_seen_name,
                 player_id,
             ),
         )

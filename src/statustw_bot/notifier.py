@@ -44,6 +44,7 @@ class Notification:
     server_port: int | None = None
     profile_url_override: str | None = None
     other_servers: int = 0
+    seen_name: str | None = None  # alias the person is online with, if not the main name
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,14 @@ def _link(text: str, url: str | None) -> str:
 
 
 def build_embed(notification: Notification, links: LinkTemplates, color: int) -> discord.Embed:
-    player = _link(notification.player_name, links.player_url(notification.player_name, notification.profile_url_override))
+    alias = notification.seen_name if notification.seen_name not in (None, notification.player_name) else None
+    # The profile link points to the name that is actually online (status.tw profiles are per name).
+    profile = links.player_url(alias, None) if alias else links.player_url(
+        notification.player_name, notification.profile_url_override
+    )
+    player = _link(notification.player_name, profile)
+    if alias:
+        player += f" (as {escape_text(alias)})"
     if notification.server_name:
         server = _link(notification.server_name, links.server_url(notification.server_ip, notification.server_port))
         description = f"Player {player} connected to {server}"

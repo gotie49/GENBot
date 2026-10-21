@@ -94,7 +94,10 @@ def _split_address(address: str | None) -> tuple[str | None, int | None]:
 
 def player_line(player: PlayerRecord, links: LinkTemplates, now: datetime) -> str:
     state = player.state
-    parts = [f"{status_dot(player, now)} **{escape_text(player.name)}**"]
+    head = f"{status_dot(player, now)} **{escape_text(player.name)}**"
+    if state.status is Status.ONLINE and state.last_seen_name and state.last_seen_name != player.name:
+        head += f" ({escape_text(state.last_seen_name)})"  # online under an alias
+    parts = [head]
 
     if state.last_server_name:
         ip, port = _split_address(state.last_server_address)

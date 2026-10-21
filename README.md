@@ -123,7 +123,8 @@ Antworten sind nur für den Aufrufenden sichtbar. Alle Texte, die Discord-Nutzer
 
 | Befehl | Wirkung | Berechtigung |
 |---|---|---|
-| `/player add player:<Name> [server:<IPv4:Port>] [profile_url:<URL>]` | Spieler hinzufügen. Der Name wird bei status.tw geprüft (exakte Schreibweise, Groß-/Kleinschreibung zählt). `server` begrenzt die Benachrichtigung auf einen bestimmten Server. | Manager |
+| `/player add player:<Name> [server:<IPv4:Port>] [profile_url:<URL>] [aliases:<Name, Name>]` | Spieler hinzufügen. Alle Namen werden bei status.tw geprüft (exakte Schreibweise, Groß-/Kleinschreibung zählt). `server` begrenzt die Benachrichtigung auf einen bestimmten Server, `aliases` hinterlegt weitere Namen (siehe unten). | Manager |
+| `/player edit player:<Name> aliases:<Name, Name>` | Aliase ersetzen; `aliases:-` entfernt alle | Manager |
 | `/player remove player:<Name>` | Eintrag löschen | Manager |
 | `/player enable player:<Name>` | Überwachung fortsetzen | Manager |
 | `/player disable player:<Name>` | Überwachung pausieren, Eintrag bleibt | Manager |
@@ -134,7 +135,30 @@ Antworten sind nur für den Aufrufenden sichtbar. Alle Texte, die Discord-Nutzer
 Nutzer in `ADMIN_USER_IDS`. \*`PUBLIC_READ_COMMANDS=false` beschränkt auch `list`/`status` auf Manager.
 
 Beim Hinzufügen wird **nicht** sofort benachrichtigt, auch wenn der Spieler gerade online ist –
-die erste Nachricht kommt beim nächsten Wechsel offline → online. Dasselbe gilt nach `enable`.
+die erste Nachricht kommt beim nächsten Wechsel offline → online. Dasselbe gilt nach `enable`
+und nach dem Ändern der Aliase.
+
+### Aliase (mehrere Namen pro Spieler)
+
+```
+/player add player:Gotie aliases:G0tie, gotie49
+/player edit player:Gotie aliases:G0tie, gotie49, xGotie
+/player edit player:Gotie aliases:-
+```
+
+- Ein Eintrag steht dann für eine Person mit Hauptnamen und bis zu 5 Aliasen (kommagetrennt;
+  Namen, die selbst ein Komma enthalten, sind deshalb als Alias nicht möglich).
+- Die Person gilt als online, sobald **irgendeiner** ihrer Namen online ist. Ein Wechsel zwischen
+  den Namen während einer Online-Phase löst keine zweite Meldung aus; ein Dummy mit Alias auf
+  demselben Server zählt als eine Person.
+- Meldung: `Player Gotie (as G0tie) connected to …` – der Profil-Link zeigt auf den Namen, der
+  tatsächlich online ist. In der Statusliste steht der Alias in Klammern, solange die Person
+  unter diesem Namen online ist.
+- Jeder Name gehört höchstens zu einer Person. Alle Befehle finden eine Person auch über einen
+  Alias, z. B. `/player status player:G0tie`.
+- Jeder Alias kostet pro Prüfung eine eigene Anfrage an status.tw. Die automatische Strategie
+  zählt deshalb Namen statt Personen und wechselt bei mehr Namen, als ins Budget passen, auf die
+  Sammelabfrage `/player/list`.
 
 ### Statusliste (dauerhafte Nachricht)
 
@@ -405,7 +429,7 @@ src/statustw_bot/
 
 | Geprüft | Ergebnis |
 |---|---|
-| Automatisierte Tests (`pytest`, 129 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
+| Automatisierte Tests (`pytest`, 150 Tests: Statusübergänge, Neustart-Strategien, API-Fehler/Timeouts/429/ungültige Antworten, Doppelmeldungen, Nebenläufigkeit, Persistenz, Embed-Layout, Konfiguration, Backup, Healthcheck) | ✅ bestanden (Windows, Python 3.12.10) |
 | status.tw-Endpunkte, Antwortformate, Header, Auth-Pflicht | ✅ live per HTTP geprüft; Parser mit echtem `/player/list`-Datensatz getestet |
 | Bot-Start mit ungültigem Token → saubere Fehlermeldung, Exit 1, kein Token im Log | ✅ |
 | Slash-Command-Payloads (Namen, Längen, nur Server-Kontext) | ✅ lokal erzeugt und geprüft |

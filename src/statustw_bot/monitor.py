@@ -111,7 +111,8 @@ class PresenceMonitor:
     async def run_cycle(self) -> CycleResult:
         async with self._cycle_lock:
             players = await self._storage.list_players(enabled_only=True)
-            strategy = self.choose_strategy(len(players))
+            # Every name (main name and aliases) costs one request in per-player mode.
+            strategy = self.choose_strategy(sum(len(p.names) for p in players))
             result = CycleResult(strategy=strategy)
             if not players:
                 return result
@@ -131,20 +132,25 @@ class PresenceMonitor:
         except StatusTwError as exc:
             log.warning("status.tw bulk lookup failed; status unknown this cycle", extra=fields(error=str(exc)))
             return {}
-        return {p.id: online.get(p.name, PlayerPresence(p.name, ())) for p in players}
+        return {p.id: _combine(p, [online.get(n, PlayerPresence(n, ())) for n in p.names]) for p in players}
 
     async def _fetch_each(self, players: list[PlayerRecord]) -> dict[int, PlayerPresence | None]:
         result: dict[int, PlayerPresence | None] = {}
         for player in players:
-            if self._stop.is_set():
-                break
-            try:
-                result[player.id] = await self._api.get_player(player.name)
-            except PlayerNotFound:
-                # Documented: 404 only if the name was never seen -> certainly not online.
-                result[player.id] = PlayerPresence(player.name, ())
-            except StatusTwError as exc:
-                log.warning("status.tw lookup failed; status unknown", extra=fields(player=player.name, error=str(exc)))
+            lookups: list[PlayerPresence | None] = []
+            for name in player.names:
+                if self._stop.is_set():
+                    return result
+                try:
+                    lookups.append(await self._api.get_player(name))
+                except PlayerNotFound:
+                    # Documented: 404 only if the name was never seen -> certainly not online.
+                    lookups.append(PlayerPresence(name, ()))
+                except StatusTwError as exc:
+                    log.warning("status.tw lookup failed; status unknown",
+                                extra=fields(player=player.name, name=name, error=str(exc)))
+                    lookups.append(None)
+            result[player.id] = _combine(player, lookups)
         return result
 
     async def _process(self, player: PlayerRecord, presence: PlayerPresence | None, result: CycleResult) -> None:
@@ -153,8 +159,8 @@ class PresenceMonitor:
         if presence is None:
             observation = Observation.error()
         elif connections:
-            first = connections[0].server
-            observation = Observation.online_on(first.name, first.address)
+            first = connections[0]
+            observation = Observation.online_on(first.server.name, first.server.address, first.player_name)
         else:
             observation = Observation.offline()
 
@@ -199,7 +205,8 @@ class PresenceMonitor:
                     server_ip=server.ip,
                     server_port=server.port,
                     profile_url_override=player.profile_url,
-                    other_servers=len(connections) - 1,
+                    other_servers=len({c.server.address for c in connections}) - 1,
+                    seen_name=connections[0].player_name,
                 )
             )
             result.notifications += 1
@@ -213,6 +220,18 @@ class PresenceMonitor:
                 fh.write(str(int(time.time())))
         except OSError as exc:
             log.warning("could not write heartbeat file", extra=fields(path=path, error=str(exc)))
+
+
+def _combine(player: PlayerRecord, lookups: list[PlayerPresence | None]) -> PlayerPresence | None:
+    """Merge the lookups of all names of one person (main name first).
+
+    Online as soon as any name is online. If no name is online and at least one lookup
+    failed, the result is unknown (None) - a failed lookup must never mean offline.
+    """
+    connections = tuple(c for presence in lookups if presence is not None for c in presence.connections)
+    if not connections and any(presence is None for presence in lookups):
+        return None
+    return PlayerPresence(player.name, connections)
 
 
 __all__ = ["CycleResult", "MonitorOptions", "PresenceMonitor"]

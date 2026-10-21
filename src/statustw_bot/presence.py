@@ -44,6 +44,8 @@ class PresenceState:
     # True once the current online session was announced (or deliberately suppressed).
     session_announced: bool = False
     last_notified_at: datetime | None = None
+    # Which of the person's names (main name or alias) was online most recently.
+    last_seen_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class Observation:
     online: bool | None  # None = lookup failed / unknown
     server_name: str | None = None
     server_address: str | None = None
+    seen_name: str | None = None  # name the person is online with (main name or alias)
 
     @classmethod
     def error(cls) -> "Observation":
@@ -63,8 +66,10 @@ class Observation:
         return cls(online=False)
 
     @classmethod
-    def online_on(cls, server_name: str | None, server_address: str | None) -> "Observation":
-        return cls(online=True, server_name=server_name, server_address=server_address)
+    def online_on(
+        cls, server_name: str | None, server_address: str | None, seen_name: str | None = None
+    ) -> "Observation":
+        return cls(online=True, server_name=server_name, server_address=server_address, seen_name=seen_name)
 
 
 @dataclass(frozen=True)
@@ -108,6 +113,7 @@ def _observe_online(
         last_online_at=now,
         last_server_name=obs.server_name,
         last_server_address=obs.server_address,
+        last_seen_name=obs.seen_name,
         offline_streak=0,
     )
 

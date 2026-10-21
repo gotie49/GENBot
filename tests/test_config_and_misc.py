@@ -145,7 +145,7 @@ async def test_command_payload_is_english_and_valid():
         texts.append(sub["description"])
         for opt in sub.get("options", []):
             texts.append(opt["description"])
-            assert opt["name"] in {"player", "server", "profile_url"}
+            assert opt["name"] in {"player", "server", "profile_url", "aliases"}
     for text in texts:
         assert len(text) <= 100
         assert not any(ch in text for ch in "äöüÄÖÜß"), text
@@ -154,9 +154,9 @@ async def test_command_payload_is_english_and_valid():
 def test_command_group_structure():
     group = PlayerCommands(bot=None)  # type: ignore[arg-type]
     names = sorted(c.name for c in group.commands)
-    assert names == ["add", "disable", "enable", "list", "remove", "status"]
+    assert names == ["add", "disable", "edit", "enable", "list", "remove", "status"]
     assert group.guild_only
-    for name in ("remove", "enable", "disable", "status"):
+    for name in ("remove", "enable", "disable", "status", "edit"):
         cmd = group.get_command(name)
         assert cmd._params["player"].autocomplete is not None
 
